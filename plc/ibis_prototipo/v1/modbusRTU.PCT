@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- #DEFINE PREFIX modbusRTU -->
+<devicetemplate>
+	<deviceinfo caption="modbusRTU" name="modbusRTU" version="0.0" icon="img\application.ico" deviceid="modbusRTU" devicetype="application" PLCApplicationID="modbusRTU">
+		<description>modbusRTU Application</description>
+		<protocols><protocol>FreeAdvance_668p15_appl</protocol></protocols>
+	</deviceinfo>
+	<plcconfig>
+		<hmi>
+			<tree name="treeCommissioning">
+				<node name="PREFIX" caption="modbusRTU" icon="%CATALOG%\Applications\img\application.ico" datalink="PREFIX" captionedit="false" menu="menuAppPLC"/>
+			</tree>
+		</hmi>
+		<templatedata>
+			<PREFIX/>
+		</templatedata>
+		<extensions>
+		</extensions>
+		<datadef version="1.0">
+			<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+				<xs:element name="PREFIX">
+					<xs:complexType>
+						<xs:complexContent>
+							<xs:extension base="insertableDevice">
+								<xs:sequence>
+								</xs:sequence>
+								<xs:attribute name="oncreatenode" type="xs:string" fixed="configurator.OnCreateDeviceChild"/>
+								<xs:attribute name="onloadnode" type="xs:string" fixed="configurator.OnLoadDeviceChild"/>
+								<xs:attribute name="ondeletenode" type="xs:string" fixed="configurator.OnDeleteDeviceChild"/>
+								<xs:attribute name="PLCProject" type="xs:string" fixed=""/>
+								<xs:attribute name="noAutoGenCaption" type="xs:boolean" fixed="true"/>
+							</xs:extension>
+						</xs:complexContent>
+					</xs:complexType>
+				</xs:element>
+			</xs:schema>
+		</datadef>
+		<cfgSettings><item name="newAccessLevelFormat">true</item></cfgSettings></plcconfig>
+	<deviceconfig>
+		<hmi>
+			<tree name="tree1">
+				<node name="PREFIX" caption="modbusRTU" icon="%CATALOG%\Applications\img\application.ico" datalink="PREFIX" captionedit="false" menu="menuAppPLC"/>
+			</tree>
+		</hmi>
+		<templatedata>
+			<PREFIX/>
+		</templatedata>
+		<extensions>
+			<eventhandler event="OnLoadTemplate">configurator.OnLoadDeviceTemplate</eventhandler>
+		</extensions>
+		<datadef version="1.0">
+			<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+				<xs:element name="PREFIX">
+					<xs:complexType>
+						<xs:complexContent>
+							<xs:extension base="insertableDevice">
+								<xs:sequence>
+								</xs:sequence>
+								<xs:attribute name="oncreatenode" type="xs:string" fixed="configurator.OnCreateDeviceChild"/>
+								<xs:attribute name="onloadnode" type="xs:string" fixed="configurator.OnLoadDeviceChild"/>
+								<xs:attribute name="ondeletenode" type="xs:string" fixed="configurator.OnDeleteDeviceChild"/>
+								<xs:attribute name="PLCProject" type="xs:string" fixed="modbusRTU.RSM"/>
+								<xs:attribute name="HMIProject" type="xs:string" fixed="HMIRemote\modbusRTU.RSM"/>
+								<xs:attribute name="HMIRemoteProject" type="xs:string" fixed="HMIRemote\Download\modbusRTU.BIN"/>
+								<xs:attribute name="noAutoGenCaption" type="xs:boolean" fixed="true"/>
+							</xs:extension>
+						</xs:complexContent>
+					</xs:complexType>
+				</xs:element>
+			</xs:schema>
+		</datadef>
+		<parameters><par ipa="5000" name="T1_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8960" commsubindex="0"/><option dataBlock="MW110.0" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8960" commsubindex="0"/></par><par ipa="5001" name="T2_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8961" commsubindex="0"/><option dataBlock="MW110.1" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8961" commsubindex="0"/></par><par ipa="5002" name="T3_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8962" commsubindex="0"/><option dataBlock="MW110.2" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8962" commsubindex="0"/></par><par ipa="5003" name="T4_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8963" commsubindex="0"/><option dataBlock="MW110.3" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8963" commsubindex="0"/></par><par ipa="5004" name="T5_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8964" commsubindex="0"/><option dataBlock="MW110.4" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8964" commsubindex="0"/></par><par ipa="5005" name="P1_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8965" commsubindex="0"/><option dataBlock="MW110.5" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8965" commsubindex="0"/></par><par ipa="5006" name="P2_output" descr="" typetarg="short" typepar="short" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0"><protocol name="Modbus" commaddr="8966" commsubindex="0"/><option dataBlock="MW110.6" typeIEC="INT" parType="status"/><option name="typeIEC">INT</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8966" commsubindex="0"/></par><par ipa="5007" name="Corrente_L1_output" descr="" typetarg="int" typepar="int" scale="1" form="" offs="0" um="" readonly="false" defval="0" accesslevel="0" aggregable="false"><protocol name="Modbus" commaddr="8967" commsubindex="0"/><option dataBlock="MW110.8" typeIEC="REAL" parType="status"/><option name="typeIEC">REAL</option><option name="softscope">0</option><option name="dbScale">1</option><option name="dbOffset">0</option><protocol name="CanOpen" commaddr="8967" commsubindex="0"/></par></parameters>
+		<enums/>
+		<redefPars><redefPar ipa="10354" defval="3"/><redefPar ipa="10355" defval="3"/><redefPar ipa="10044" defval="10"/><redefPar ipa="10045" defval="0"/><redefPar ipa="10046" defval="0"/><redefPar ipa="10047" defval="1"/><redefPar ipa="10048" defval="10"/><redefPar ipa="10049" defval="0"/><redefPar ipa="10050" defval="0"/><redefPar ipa="10051" defval="1"/><redefPar ipa="10052" defval="255"/><redefPar ipa="10053" defval="255"/><redefPar ipa="10054" defval="255"/><redefPar ipa="10042" defval="80"/><redefPar ipa="10043" defval="502"/><redefPar ipa="10024" defval="1"/><redefPar ipa="10020" defval="3"/><redefPar ipa="10021" defval="8"/><redefPar ipa="10022" defval="1"/><redefPar ipa="10023" defval="2"/><redefPar ipa="10024" defval="1"/></redefPars>
+		<settings><item name="newAccessLevelFormat">true</item></settings><fieldVars/>
+		<BACnetsNotPublished/></deviceconfig>
+</devicetemplate>

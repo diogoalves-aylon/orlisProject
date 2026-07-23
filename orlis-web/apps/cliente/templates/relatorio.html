@@ -1,0 +1,146 @@
+{% extends layout_path %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}Relatório{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <!-- Linha superior: Dados cliente + Powered by logo -->
+  <div class="row mb-4 align-items-center">
+    <div class="col-md-9 d-flex align-items-center">
+      <div class="me-3">
+        <img src="{% url 'cliente-logo' cliente.idCliente %}" alt="Logo Cliente" class="img-fluid" style="max-height: 100px;">
+      </div>
+      <div>
+        <h4 class="mb-0">{{ cliente.nome }}</h4>
+        <p class="mb-0 text-muted">{{ cliente.email }}</p>
+        <p class="mb-0">Chiller - {{ chiller.nome }}</p>
+      </div>
+    </div>
+    <div class="col-md-3 text-end">
+      <small>Powered by</small><br>
+      <img src="{% static 'img/logo_arcoxxi.png' %}" alt="Logo ArcoXXI" class="img-fluid" style="max-height: 30px;">
+    </div>
+  </div>
+
+  <h3 class="py-3 mb-4">Relatório de Consumo Energético</h3>
+
+  <!-- Formulário de seleção de período -->
+  <form method="get" class="mb-4 d-flex flex-wrap gap-2 align-items-center">
+    <input type="hidden" name="cliente_id" value="{{ cliente.idCliente }}">
+    <input type="hidden" name="chiller_id" value="{{ chiller.idChiller }}">
+
+    <button type="submit" name="periodo" value="30"
+      class="btn {% if periodo_selecionado == '30' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      Últimos 30 dias
+    </button>
+  
+    <button type="submit" name="periodo" value="180"
+      class="btn {% if periodo_selecionado == '180' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      Últimos 6 meses
+    </button>
+    <a href="?pdf=1&periodo={{ periodo_selecionado }}&cliente_id={{ cliente.idCliente }}&chiller_id={{ chiller.idChiller }}"
+       class="btn btn-primary ms-auto">
+      Baixar Relatório PDF
+    </a>
+  </form>
+
+
+<!-- Resumo em cartões -->
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 p-3 text-center">
+      <h6 class="mb-2 text-muted">Consumo Total</h6>
+      <p class="fs-5 fw-bold">{{ dados.total_consumo_kwh|floatformat:2 }} kWh</p>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 p-3 text-center">
+      <h6 class="mb-2 text-muted">Custo Total</h6>
+      <p class="fs-5 fw-bold">€ {{ dados.total_custo_eur|floatformat:2 }}</p>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 p-3 text-center">
+      <h6 class="mb-2 text-muted">COP Médio</h6>
+      <p class="fs-5 fw-bold">{{ dados.media_cop|floatformat:2 }}</p>
+    </div>
+  </div>
+</div>
+
+<!-- Gráfico de consumo -->
+<div class="card mt-4 p-4">
+  <div id="chartContainer">
+    <canvas id="graficoConsumo" height="80"></canvas>
+  </div>
+</div>
+
+<!-- Insights -->
+{% if dados.insights %}
+<div class="card mt-4 p-4">
+  <h5 class="mb-3">Insights Operacionais</h5>
+  <ul class="list-unstyled ps-3">
+    {% for insight in dados.insights %}
+      <li class="mb-2">🔹 {{ insight }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- Dados JSON para o gráfico -->
+{{ dados.consumo_diario|json_script:"chart-data" }}
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const rawDataElement = document.getElementById('chart-data');
+  const chartContainer = document.getElementById('chartContainer');
+  if (!rawDataElement) return;
+
+  let rawData = [];
+  try {
+    rawData = JSON.parse(rawDataElement.textContent);
+  } catch (err) {
+    chartContainer.innerHTML = "<p class='text-danger text-center'>Erro ao carregar gráfico.</p>";
+    return;
+  }
+
+  if (!Array.isArray(rawData) || rawData.length === 0) {
+    chartContainer.innerHTML = "<p class='text-muted text-center'>Sem dados disponíveis para este período.</p>";
+    return;
+  }
+
+  const labels = rawData.map(item => item.date);
+  const dataPoints = rawData.map(item => parseFloat(item.kwh).toFixed(2));
+
+  const ctx = document.getElementById('graficoConsumo').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Consumo (kWh)',
+        data: dataPoints,
+        borderColor: 'rgba(75, 192, 192, 1)',
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        tension: 0.25,
+        fill: true,
+        pointRadius: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        x: { ticks: { autoSkip: true, maxTicksLimit: 15 }},
+        y: { beginAtZero: true }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

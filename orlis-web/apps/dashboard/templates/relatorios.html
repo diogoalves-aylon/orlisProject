@@ -1,0 +1,183 @@
+{% extends layout_path %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}Relatório{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="row mb-4 align-items-center">
+    <div class="col-md-9 d-flex align-items-center">
+      <div class="me-3">
+        {% if cliente %}
+        <img src="{% url 'cliente-logo' cliente.idCliente %}" alt="Logo Cliente" class="img-fluid" style="max-height: 80px;">
+        {% endif %}
+      </div>
+      <div>
+        <h4 class="mb-0">{{ cliente.nome }}</h4>
+        <p class="mb-0 text-muted">{{ cliente.email }}</p>
+        <p class="mb-0 fw-bold text-primary">Equipamento: {{ chiller.nome }}</p>
+      </div>
+    </div>
+    <div class="col-md-3 text-end">
+      <small class="text-muted">Powered by</small><br>
+      <img src="{% static 'img/logo_arcoxxi.png' %}" alt="Logo ArcoXXI" class="img-fluid" style="max-height: 35px;">
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="mb-0">Relatório de Desempenho</h3>
+  </div>
+
+  <form method="get" class="mb-4 d-flex flex-wrap gap-2 align-items-center">
+    <input type="hidden" name="cliente_id" value="{{ cliente.idCliente }}">
+    <input type="hidden" name="chiller_id" value="{{ chiller.idChiller }}">
+    
+    <button type="submit" name="periodo" value="30"
+      class="btn {% if periodo_selecionado == '30' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      Últimos 30 dias
+    </button>
+  
+    <button type="submit" name="periodo" value="180"
+      class="btn {% if periodo_selecionado == '180' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      Últimos 6 meses
+    </button>
+  
+    {% if cliente and chiller %}
+    <a href="?pdf=1&periodo={{ periodo_selecionado }}&cliente_id={{ cliente.idCliente }}&chiller_id={{ chiller.idChiller }}"
+       class="btn btn-outline-danger ms-auto">
+       <i class='bx bxs-file-pdf me-1'></i> Baixar PDF
+    </a>
+    {% endif %}
+  </form>
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 p-3 text-center h-100">
+      <h6 class="mb-2 text-muted text-uppercase">Consumo Estimado</h6>
+      <p class="fs-4 fw-bold text-primary mb-0">{{ dados.total_consumo_kwh|floatformat:2 }} <small class="fs-6 text-muted">kWh</small></p>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 p-3 text-center h-100">
+      <h6 class="mb-2 text-muted text-uppercase">Custo Estimado</h6>
+      <p class="fs-4 fw-bold text-success mb-0">€ {{ dados.total_custo_eur|floatformat:2 }}</p>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card shadow-sm border-0 p-3 text-center h-100">
+      <h6 class="mb-2 text-muted text-uppercase">COP Médio</h6>
+      <p class="fs-4 fw-bold text-info mb-0">{{ dados.media_cop|floatformat:2 }}</p>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-4 border-0 shadow-sm">
+  <div class="card-header bg-transparent">
+    <h5 class="mb-0">Evolução do Consumo Diário</h5>
+  </div>
+  <div class="card-body">
+    <div id="chartContainer" style="position: relative; height:300px; width:100%">
+      <canvas id="graficoConsumo"></canvas>
+    </div>
+  </div>
+</div>
+
+</div>
+
+{{ dados.consumo_diario|json_script:"chart-data" }}
+{{ debug_info|json_script:"debug-data" }}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  
+  // =========================================================
+  // 1. DEBUG NA CONSOLA (O QUE PEDIU)
+  // =========================================================
+  try {
+      const debugEl = document.getElementById('debug-data');
+      if(debugEl) {
+          const info = JSON.parse(debugEl.textContent);
+          
+          console.group("%c 🔍 DEBUG RELATÓRIO ORLIS (PYTHON -> JS) ", "background: #000; color: #00ff00; padding: 5px; font-size: 14px;");
+          
+          console.log(`📡 IP Pesquisado: "${info.ip_alvo}"`);
+          console.log(`📂 Registos Encontrados: ${info.registos_encontrados}`);
+          
+          if(info.erro) {
+              console.error("❌ ERRO NO PYTHON:", info.erro);
+          }
+
+          if (info.registos_encontrados > 0) {
+              console.groupCollapsed("📄 Ver 1º Documento do Mongo (Raw)");
+              console.log(info.amostra_raw);
+              console.groupEnd();
+
+              console.group("⚡ Teste de Extração de Valores");
+              console.log("Valores lidos do 1º doc:", info.valores_extraidos_teste);
+              console.log("Se estes valores forem null ou 0, a chave do dicionário está errada.");
+              console.groupEnd();
+              
+              console.log("💰 Resultado Final Calculado:", info.resultado_final);
+          } else {
+              console.warn("⚠️ NENHUM DADO ENCONTRADO! Verifique se o IP no Chiller e no Mongo são idênticos.");
+          }
+          console.groupEnd();
+      }
+  } catch(e) { console.error("Falha ao ler debug:", e); }
+
+
+  // =========================================================
+  // 2. CHART JS
+  // =========================================================
+  const rawDataElement = document.getElementById('chart-data');
+  const chartContainer = document.getElementById('chartContainer');
+  
+  if (!rawDataElement) return;
+
+  let rawData = [];
+  try { rawData = JSON.parse(rawDataElement.textContent); } 
+  catch (err) { console.error("Erro chart JSON", err); return; }
+
+  if (!Array.isArray(rawData) || rawData.length === 0) {
+    chartContainer.innerHTML = `<div class="d-flex justify-content-center align-items-center h-100"><p class="text-muted">Sem dados suficientes.</p></div>`;
+    return;
+  }
+
+  const labels = rawData.map(item => item.date);
+  const dataPoints = rawData.map(item => parseFloat(item.kwh) || 0);
+
+  const ctx = document.getElementById('graficoConsumo').getContext('2d');
+  const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+  gradient.addColorStop(0, 'rgba(105, 108, 255, 0.5)');
+  gradient.addColorStop(1, 'rgba(105, 108, 255, 0.0)');
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Consumo (kWh)',
+        data: dataPoints,
+        borderColor: '#696cff',
+        backgroundColor: gradient,
+        borderWidth: 2,
+        tension: 0.4,
+        fill: true,
+        pointRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
+        y: { beginAtZero: true, grid: { borderDash: [2, 4] } }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

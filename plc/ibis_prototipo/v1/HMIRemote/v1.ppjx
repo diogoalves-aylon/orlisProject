@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<plcProject caseSensitive="false" extcheck="true">
+	<image>v1.imgx</image>
+	<commSettings>ModbusTCP:255,1000,M6#TCPIP:10.99.120.29/502,5000</commSettings>
+	<sources>
+		<main>v1.plc</main>
+		<target id="FreeAdvance_668p15">FreeAdvanceSmall_HMI_668p15.tgt</target>
+		<libraries>
+			<lib link="false">HMIInterface.pll</lib>
+			<lib link="false">basic.plclib</lib>
+			<lib link="false">FS_IEC.pll</lib>
+			<lib link="false">CanOpen_IEC.pll</lib>
+			<lib link="false">Application.plclib</lib>
+			<lib link="false">Regul and Control.plclib</lib>
+			<lib link="false">Communication.plclib</lib>
+			<lib link="false">QRcodeGenerator.plclib</lib>
+			<lib link="false">Electronic Expansion Valve.plclib</lib>
+		</libraries>
+		<aux/>
+	</sources>
+	<codegen listing="false" warningEnable="true" symMap="true" saveEXPFile="false" waitExtension="false" saveTargetFiles="false">
+		<disabledWarnings>
+			<warning>G0091</warning>
+			<warning>G0094</warning>
+			<warning>G0130</warning>
+			<warning>G0072</warning>
+		</disabledWarnings>
+	</codegen>
+	<debug watchRefresh="20" watchMaxArray="20"/>
+	<editor useOldGridSize="false"/>
+	<userDef>
+		<release/>
+		<author/>
+		<note/>
+		<version/>
+	</userDef>
+	<commands>
+		<postbuild/>
+		<postdown/>
+		<predown/>
+	</commands>
+</plcProject>

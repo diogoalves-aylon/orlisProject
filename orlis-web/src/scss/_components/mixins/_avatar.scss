@@ -1,0 +1,32 @@
+// Avatar
+// *******************************************************************************
+
+@mixin template-avatar-style($height, $width, $font-size, $status-indicator-position: 2px) {
+  width: $width;
+  height: $height;
+
+  .avatar-initial {
+    font-size: $font-size;
+  }
+
+  &.avatar-online,
+  &.avatar-offline,
+  &.avatar-away,
+  &.avatar-busy {
+    &:after {
+      width: $width * 0.2;
+      height: $height * 0.2;
+      right: $status-indicator-position;
+    }
+  }
+}
+
+@mixin template-avatar-shadow-variant($parent, $background, $color: null) {
+  .avatar {
+    #{$parent} {
+      color: $background;
+      background-color: rgba($background, 0.16);
+      box-shadow: 0 0 0 0.25rem rgba($background, 0.06);
+    }
+  }
+}

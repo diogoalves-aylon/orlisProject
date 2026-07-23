@@ -1,0 +1,153 @@
+{% extends layout_path %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}Registo{% endblock %}
+
+{% block vendor_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'vendor/libs/@form-validation/form-validation.css' %}" />
+{% endblock vendor_css %}
+
+{% block vendor_js %}
+{{ block.super }}
+<script src="{% static 'vendor/libs/cleavejs/cleave.js' %}"></script>
+<script src="{% static 'vendor/libs/@form-validation/popular.js' %}"></script>
+<script src="{% static 'vendor/libs/@form-validation/bootstrap5.js' %}"></script>
+<script src="{% static 'vendor/libs/@form-validation/auto-focus.js' %}"></script>
+{% endblock vendor_js %}
+
+{% block page_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static  'vendor/css/pages/page-auth.css' %}">
+{% endblock page_css %}
+
+{% block page_js %}
+{{ block.super }}
+<script src="{% static 'js/pages-auth.js' %}"></script>
+{% endblock page_js %}
+
+{% block content %}
+<div class="container-xxl">
+  <div class="authentication-wrapper authentication-basic container-p-y">
+    <div class="authentication-inner" style="max-width: 550px;">
+      <div class="card px-sm-6 px-0">
+        <div class="card-body">
+          <div class="app-brand justify-content-center mb-2">
+            <a href="{% url 'login' %}" class="app-brand-link gap-2">
+              <span class="app-brand-logo-login demo">{% include 'partials/logo.html' with withbg="#696cff" %}</span>
+            </a>
+          </div>
+         <h4 class="mb-2 text-center">Maximize a Performance</h4>
+         <p class="mb-4 text-center text-muted">Registe-se para monitorizar e otimizar os seus chillers em tempo real.</p>
+
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-{{ message.tags }} alert-dismissible" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          <form id="formAuthentication" class="mb-4" action="{% url 'register' %}" method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+
+            <div class="divider my-4">
+              <div class="divider-text text-uppercase text-muted"><small>Dados de Acesso</small></div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                  <label for="username" class="form-label">Username</label>
+                  <div class="input-group input-group-merge">
+                    <span class="input-group-text"><i class="bx bx-user"></i></span>
+                    <input type="text" class="form-control" id="username" name="username" placeholder="jdoe" autofocus>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label for="email" class="form-label">Email</label>
+                  <div class="input-group input-group-merge">
+                    <span class="input-group-text"><i class="bx bx-envelope"></i></span>
+                    <input type="text" class="form-control" id="email" name="email" placeholder="nome@email.com">
+                  </div>
+                </div>
+            </div>
+
+            <div class="mb-3 mt-3 form-password-toggle">
+              <label class="form-label" for="password">Password</label>
+              <div class="input-group input-group-merge">
+                <span class="input-group-text"><i class="bx bx-key"></i></span>
+                <input type="password" id="password" class="form-control" name="password" placeholder="&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;&#xb7;" aria-describedby="password" />
+                <span class="input-group-text cursor-pointer"><i class="bx bx-hide"></i></span>
+              </div>
+            </div>
+
+            <div class="divider my-4">
+              <div class="divider-text text-uppercase text-muted"><small>Dados da Empresa</small></div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Nome da Empresa</label>
+              <div class="input-group input-group-merge">
+                <span class="input-group-text"><i class="bx bx-buildings"></i></span>
+                <input type="text" class="form-control" name="empresa_nome" placeholder="Ex: Minha Empresa Lda.">
+              </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">NIF</label>
+                    <div class="input-group input-group-merge">
+                        <span class="input-group-text"><i class="bx bx-hash"></i></span>
+                        <input type="text" class="form-control numeral-mask" name="empresa_nif" placeholder="123456789">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Telefone</label>
+                    <div class="input-group input-group-merge">
+                        <span class="input-group-text"><i class="bx bx-phone"></i></span>
+                        <input type="text" class="form-control numeral-mask" name="empresa_telefone" placeholder="910000000">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Localidade</label>
+              <div class="input-group input-group-merge">
+                <span class="input-group-text"><i class="bx bx-map"></i></span>
+                <input type="text" class="form-control" name="empresa_localidade" placeholder="Ex: Lisboa">
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="empresa_logo" class="form-label">Logótipo <span class="text-muted small">(Opcional)</span></label>
+              <input class="form-control" type="file" id="empresa_logo" name="empresa_logo" accept="image/png, image/jpeg, image/jpg">
+              <div class="form-text">Formatos: PNG, JPG.</div>
+            </div>
+
+            <div class="my-4">
+              <div class="form-check mb-0 ms-2">
+                <input class="form-check-input" type="checkbox" id="terms-conditions" name="terms">
+                <label class="form-check-label" for="terms-conditions">
+                  Concordo com a <a href="javascript:void(0);">política de privacidade e os termos.</a>
+                </label>
+              </div>
+            </div>
+            
+            <button class="btn btn-primary d-grid w-100" id="btnSubmit">
+               <span id="btnText">Registar-se</span>
+               <span id="btnLoader" class="spinner-border spinner-border-sm text-white visually-hidden" role="status" aria-hidden="true"></span>
+            </button>
+          </form>
+
+          <p class="text-center">
+            <span>Já tem uma conta?</span>
+            <a href="{% url 'login' %}"><span>Inicie sessão</span></a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

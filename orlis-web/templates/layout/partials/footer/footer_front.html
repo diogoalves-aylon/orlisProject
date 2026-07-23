@@ -1,0 +1,72 @@
+{% load static %}
+
+<footer class="landing-footer bg-body footer-text">
+  <div class="footer-top position-relative overflow-hidden z-1">
+    <img src="{% static 'img/front-pages/backgrounds/footer-bg-black.png' %}" alt="footer bg" class="footer-bg banner-bg-img z-n1" />
+    <div class="container">
+      <div class="row gx-0 gy-6 g-lg-10">
+        <div class="col-lg-5">
+          <a href="{% url 'landing-page' %}" class="app-brand-link mb-6">
+            <span class="app-brand-logo-footer-front demo">
+              {% include 'partials/logo_black.html' with withbg="#696cff" %}
+            </span>
+
+          </a>
+
+        </div>
+        <div class="col-lg-2 col-md-4 col-sm-6">
+          <h6 class="footer-title mb-6">Home</h6>
+          <ul class="list-unstyled">
+            <li class="mb-4">
+              <a href="#features" target="_blank" class="footer-link">Funcionalidades</a>
+            </li>
+            <li class="mb-4">
+              <a href="#contacts" target="_blank" class="footer-link">Contactos</a>
+            </li>
+
+          </ul>
+        </div>
+
+        <div class="col-lg-2 col-md-4 col-sm-6">
+          <h6 class="footer-title mb-6">Links</h6>
+          <ul class="list-unstyled">
+            <li class="mb-4">
+              <a href="#" class="footer-link">Livro de Reclamações</a>
+            </li>
+            <li class="mb-4">
+              <a href="#" class="footer-link">Termos e Condições</a>
+            </li>
+            <li class="mb-4">
+              <a href="#" class="footer-link">Política de Privacidade</a>
+            </li>
+            <li class="mb-4">
+              <a href="#" class="footer-link">Política de Cookies</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="col-lg-3 col-md-4">
+          <h6 class="footer-title mb-6">Download nossa App (em breve)</h6>
+          <a href="javascript:void(0);" class="d-block mb-4"><img src="{% static 'img/front-pages/landing-page/apple-icon.png' %}" alt="apple icon" /></a>
+          <a href="javascript:void(0);" class="d-block"><img src="{% static 'img/front-pages/landing-page/google-play-icon.png' %}" alt="google play icon" /></a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom py-3 py-md-5">
+    <div class="container d-flex flex-wrap justify-content-between flex-md-row flex-column text-center text-md-start">
+      <div class="mb-2 mb-md-0">
+        <span class="footer-bottom-text">©
+          <script>
+          document.write(new Date().getFullYear());
+
+          </script>
+        </span>
+        <a href="https://ednuai.com/landing/" target="_blank" class="text-white">{% get_theme_variables 'creator_name' %},</a>
+        <span class="footer-bottom-text"> All rights reserved.</span>
+      </div>
+
+    </div>
+  </div>
+</footer>

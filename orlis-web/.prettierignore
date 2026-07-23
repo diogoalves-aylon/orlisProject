@@ -1,0 +1,11 @@
+# Diretórios já ignorados
+dist
+node_modules
+public/assets/vendor
+
+# Ignorar arquivos HTML
+*.html
+
+# Ignorar HTML dentro de pastas de templates (especialmente para Django)
+**/templates/**/*.html
+**/templates/**/*.django-html

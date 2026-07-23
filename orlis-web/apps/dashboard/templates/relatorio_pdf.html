@@ -1,0 +1,212 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório de Desempenho</title>
+    <style>
+        @page { size: A4; margin: 1.5cm; }
+        body { 
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
+            color: #333; 
+            line-height: 1.4; 
+            font-size: 11px; 
+            background-color: #fff;
+        }
+
+        /* Cabeçalho */
+        .header { 
+            border-bottom: 1px solid #ccc; 
+            padding-bottom: 15px; 
+            margin-bottom: 25px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+        }
+        .header-left h1 { 
+            margin: 0; 
+            font-size: 20px; 
+            text-transform: uppercase; 
+        }
+        .header-left p { 
+            margin: 3px 0 0; 
+            color: #555; 
+            font-size: 11px;
+        }
+        .header-right { text-align: right; }
+        .logo { height: 30px; }
+
+        /* Secções */
+        .section { margin-bottom: 25px; }
+        .section-title { 
+            font-size: 12px; 
+            font-weight: 600; 
+            color: #222; 
+            border-bottom: 1px solid #ddd; 
+            padding-bottom: 4px; 
+            margin-bottom: 15px; 
+            text-transform: uppercase;
+        }
+
+        /* Tabela de Dados */
+        .info-grid { display: table; width: 100%; }
+        .info-row { display: table-row; }
+        .info-cell { display: table-cell; width: 50%; padding: 4px 0; }
+        .label { font-weight: 600; color: #444; }
+
+        /* Cartões de Resumo */
+        .summary-box { 
+            background-color: #f7f7f7; 
+            padding: 12px; 
+            border-radius: 5px; 
+            margin-bottom: 15px; 
+            text-align: center; 
+            display: inline-block; 
+            width: 30%; 
+            margin-right: 2%; 
+            vertical-align: top; 
+        }
+        .summary-box:last-child { margin-right: 0; }
+        .summary-val { 
+            font-size: 16px; 
+            font-weight: bold; 
+            display: block; 
+            margin-top: 4px; 
+        }
+        .summary-label { 
+            font-size: 9px; 
+            text-transform: uppercase; 
+            color: #666;
+        }
+
+        /* Tabela Detalhada */
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 10px; 
+            font-size: 10px;
+        }
+        th { 
+            background: #eee; 
+            color: #222; 
+            padding: 6px 8px; 
+            text-align: left; 
+            font-weight: 600; 
+        }
+        td { 
+            border-bottom: 1px solid #eee; 
+            padding: 6px 8px; 
+        }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+
+        /* Lista de insights */
+        ul { padding-left: 16px; margin: 0; }
+        li { margin-bottom: 4px; }
+
+        /* Rodapé */
+        .footer { 
+            position: fixed; 
+            bottom: 0; 
+            left: 0; 
+            right: 0; 
+            text-align: center; 
+            font-size: 8px; 
+            color: #999; 
+            border-top: 1px solid #eee; 
+            padding-top: 6px; 
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-left">
+            <h1>Relatório de Consumo</h1>
+            <p>Gerado em: {{ dados.data_geracao }}</p>
+        </div>
+        <div class="header-right">
+            {% if logo_path %}
+                <img src="{{ logo_path }}" class="logo">
+            {% else %}
+                <h3>ORLIS</h3>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Identificação do Equipamento e Cliente</div>
+        <div class="info-grid">
+            <div class="info-row">
+                <div class="info-cell"><span class="label">Cliente:</span> {{ dados.cliente }}</div>
+                <div class="info-cell"><span class="label">Equipamento:</span> {{ dados.chiller }}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-cell"><span class="label">Modelo:</span> {{ dados.modelo|default:"--" }}</div>
+                <div class="info-cell"><span class="label">Nº Série:</span> {{ dados.n_serie|default:"--" }}</div>
+            </div>
+            <div class="info-row">
+                <div class="info-cell"><span class="label">Fluido:</span> {{ dados.fluido|default:"--" }}</div>
+                <div class="info-cell"><span class="label">IP Controlador:</span> {{ dados.ip }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Resumo do Período ({{ dados.periodo_dias }} Dias)</div>
+        <div>
+            <div class="summary-box">
+                <span class="summary-label">Consumo Total</span>
+                <span class="summary-val">{{ dados.total_consumo_kwh|floatformat:2 }} kWh</span>
+            </div>
+            <div class="summary-box">
+                <span class="summary-label">Custo Total</span>
+                <span class="summary-val">€ {{ dados.total_custo_eur|floatformat:2 }}</span>
+            </div>
+            <div class="summary-box">
+                <span class="summary-label">COP Médio</span>
+                <span class="summary-val">{{ dados.media_cop|floatformat:2 }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if dados.insights %}
+    <div class="section">
+        <div class="section-title">Insights Operacionais</div>
+        <ul>
+            {% for insight in dados.insights %}
+                <li>{{ insight }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <div class="section-title">Detalhamento Diário</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Consumo (kWh)</th>
+                    <th>Custo (€)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for dia in dados.consumo_diario %}
+                <tr>
+                    <td>{{ dia.date }}</td>
+                    <td>{{ dia.kwh|floatformat:2 }}</td>
+                    <td>{{ dia.custo|floatformat:2 }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" style="text-align:center;">Sem dados registados neste período.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        Relatório gerado automaticamente pela plataforma ORLIS | Página <pdf:pagenumber>
+    </div>
+
+</body>
+</html>

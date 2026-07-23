@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  web-boilerplate-django:
+    container_name: web_boilerplate_django
+    restart: always
+    build: .
+    env_file:
+      - .env.local
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+      - media_volume:/app/media
+    ports:
+      - '5005:5005'
+    command: ['gunicorn', '--config', 'gunicorn-cfg.py', 'config.wsgi']
+    networks:
+      - boilerplate_ednu
+    extra_hosts:
+      - 'host.docker.internal:host-gateway' # Permite acesso ao PostgreSQL do host
+
+volumes:
+  static_volume:
+  media_volume:
+
+networks:
+  boilerplate_ednu:
+    driver: bridge

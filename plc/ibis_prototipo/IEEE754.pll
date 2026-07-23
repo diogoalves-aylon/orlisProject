@@ -1,0 +1,86 @@
+﻿(*
+ *
+ * LogicLab source file: C:\INVSDATA\Free\Librerie\PLL\IEEE754.pll
+ * for project:       
+ *
+ *)
+
+
+	(***************************)
+	(*                         *)
+	(*     FUNCTION BLOCKS     *)
+	(*                         *)
+	(***************************)
+
+FUNCTION_BLOCK Word2IEEE754
+
+{ DE:"Conversion of 2 Word into a REAL value using IEEE754 32bit format" }
+
+	VAR_INPUT
+	WORDH : WORD; { DE:"High Word" }
+	WORDL : WORD; { DE:"Low Word" }
+	END_VAR
+
+	VAR_OUTPUT
+	IEEE754 : REAL; { DE:"Real Value" }
+	END_VAR
+
+	VAR
+	udintptr : @UDINT; 
+	END_VAR
+
+	{ CODE:ST }IEEE754 := 0.0;
+udintptr := ADR(IEEE754);
+
+@udintptr := TO_UDINT(WORDL)+SHL(TO_UDINT(WORDH),16);
+
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK Word4IEEE754
+
+{ DE:"Approximately Conversion of 3 Word into a REAL value using IEEE754 64bit format
+Note that LSW is not used" }
+
+	VAR_INPUT
+	WORD1H : WORD; { DE:"High Word 1 (MSW)" }
+	WORD1L : WORD; { DE:"Low Word 1" }
+	WORD2H : WORD; { DE:"High Word 2" }
+	END_VAR
+
+	VAR_OUTPUT
+	out : REAL; { DE:"Real Value" }
+	END_VAR
+
+	VAR
+	fullbit : DWORD; 
+	exponent : REAL; 
+	fullbit1 : DWORD; 
+	mantisse : REAL; 
+	exponentInt : INT; 
+	mantisseDW : DWORD; 
+	END_VAR
+
+	{ CODE:ST }fullbit := SHL(TO_UDINT(WORD1H),16) OR TO_UDINT(WORD1L);
+
+exponentInt:=TO_INT(SHR(fullbit AND 16#7FF00000,20))-1023;
+exponent := TO_REAL(exponentInt);
+
+mantisseDW := (fullbit AND 16#000FFFFF);
+IF exponentInt<>-1023 THEN
+	mantisseDW := mantisseDW OR 16#00100000;
+ELSE
+	mantisseDW := SHL(mantisseDW,1);	
+END_IF;	
+mantisseDW := SHL(mantisseDW,10);
+WORD2H := SHR(WORD2H,6);
+mantisseDW := mantisseDW OR WORD2H;
+mantisse := TO_REAL(mantisseDW) / TO_REAL(16#40000000);
+
+out := pow(2.0,exponent);
+out := out * mantisse;
+IF (fullbit AND 16#80000000)<>0 THEN
+	out := -out;
+END_IF;	
+
+END_FUNCTION_BLOCK
+

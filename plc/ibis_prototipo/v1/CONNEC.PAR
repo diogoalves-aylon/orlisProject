@@ -1,0 +1,39 @@
+; Automatically generated, do not edit !
+
+;CANopen_presence:0
+; Configuration for Modbus Master RTU
+MbMRtu_OpenChn,0,0,19200,27
+MbMRtu_SlaveAssign,0,2
+MbMRtu_SetMessage,0,0,3,3000,6,1000,10,300,110,7,0
+MbMRtu_MapMessage,3,3000,1,110,7,0
+MbMRtu_MapMessage,3,3001,1,110,8,0
+MbMRtu_MapMessage,3,3002,1,110,9,0
+MbMRtu_MapMessage,3,3003,1,110,10,0
+MbMRtu_MapMessage,3,3004,1,110,11,0
+MbMRtu_MapMessage,3,3005,1,110,12,0
+MbMRtu_SetMessage,0,0,3,3020,6,1000,10,300,110,20,0
+MbMRtu_MapMessage,3,3020,1,110,20,0
+MbMRtu_MapMessage,3,3021,1,110,21,0
+MbMRtu_MapMessage,3,3022,1,110,22,0
+MbMRtu_MapMessage,3,3023,1,110,23,0
+MbMRtu_MapMessage,3,3024,1,110,24,0
+MbMRtu_MapMessage,3,3025,1,110,25,0
+MbMRtu_SetMessage,0,0,3,45108,4,1000,10,300,110,32,0
+MbMRtu_MapMessage,3,45108,1,110,32,0
+MbMRtu_MapMessage,3,45109,1,110,33,0
+MbMRtu_MapMessage,3,45110,1,110,36,0
+MbMRtu_MapMessage,3,45111,1,110,37,0
+MbMRtu_SetMessage,0,0,3,45100,2,1000,10,300,110,40,0
+MbMRtu_MapMessage,3,45100,1,110,40,0
+MbMRtu_MapMessage,3,45101,1,110,41,0
+MbMRtu_SetMessage,0,0,3,45104,2,1000,10,300,110,44,0
+MbMRtu_MapMessage,3,45104,1,110,44,0
+MbMRtu_MapMessage,3,45105,1,110,45,0
+MbMRtu_Start
+
+;Ethernet_presence:0
+; Configuration for Modbus Slave TCP
+MbSTcp_OpenChn
+MbSTcp_OpenChn
+
+;

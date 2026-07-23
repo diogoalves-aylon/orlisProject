@@ -1,0 +1,269 @@
+{% extends layout_path %}
+{% load static %}
+{% load i18n %}
+
+{% block title %}Livro de Obra - {{ chiller.nome|default:"Equipamento" }}{% endblock %}
+
+{% block vendor_css %}
+{{ block.super }}
+<style>
+    /* --- CSS Dedicado para Timeline --- */
+    .timeline-wrapper { position: relative; padding-left: 20px; margin-top: 1rem; }
+    .timeline-wrapper:before { content: ''; position: absolute; top: 0; bottom: 0; left: 6px; width: 2px; background: #e9ecef; }
+    
+    .timeline-item { position: relative; padding-bottom: 2rem; padding-left: 25px; }
+    .timeline-item:last-child { padding-bottom: 0; }
+    
+    .timeline-marker { position: absolute; left: 0; top: 5px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 2px #e9ecef; z-index: 1; }
+    /* Cores por tipo */
+    .marker-Preventiva { background-color: #71dd37 !important; }
+    .marker-Corretiva { background-color: #ff3e1d !important; }
+    .marker-Regulamentar { background-color: #696cff !important; }
+    .marker-Preditiva { background-color: #ffab00 !important; }
+    .marker-Retrofit { background-color: #03c3ec !important; }
+
+    .timeline-content { background: #fff; border: 1px solid #f2f2f2; border-radius: 0.5rem; padding: 1.2rem; box-shadow: 0 2px 6px rgba(67, 89, 113, 0.04); transition: transform 0.2s; }
+    .timeline-content:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(67, 89, 113, 0.08); border-color: #696cff; }
+</style>
+{% endblock vendor_css %}
+
+{% block content %}
+<div class="container-fluid flex-grow-1 container-p-y">
+  
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="fw-bold py-3 mb-0"><span class="text-muted fw-light">Gestão /</span> Livro de Obra</h4>
+        <div class="d-flex align-items-center text-muted">
+            <i class="bx bx-building-house me-1"></i> {{ cliente.nome }} 
+            {% if chiller %}
+                <i class="bx bx-chevron-right mx-2"></i> 
+                <i class="bx bx-server me-1"></i> {{ chiller.nome }}
+            {% endif %}
+        </div>
+    </div>
+    
+    <button type="button" class="btn btn-primary shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovaIntervencao">
+        <i class="bx bx-plus me-1"></i> Nova Intervenção
+    </button>
+  </div>
+
+  <div class="row">
+    
+    <div class="col-xl-9 col-lg-8 col-md-12 order-1 order-lg-0">
+        
+        <div class="card mb-4">
+            <div class="card-body py-3">
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <label class="form-label mb-0 fw-bold text-muted">SELECIONAR EQUIPAMENTO</label>
+                    </div>
+                    <div class="col-md-8">
+                        <select id="chillerSelect" class="form-select border-0 bg-light fw-bold text-primary">
+                            <option value="">-- Escolha um chiller --</option>
+                            {% for c in chillers %}
+                              <option value="{{ c.idChiller }}" {% if chiller and c.idChiller == chiller.idChiller %}selected{% endif %}>
+                                {{ c.nome }} - {{ c.localizacao }}
+                              </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if chiller %}
+            <div class="row mb-4 g-3">
+                <div class="col-sm-4">
+                    <div class="card h-100">
+                        <div class="card-body d-flex justify-content-between align-items-center">
+                            <div><h3 class="mb-0">{{ logs.count }}</h3><small class="text-muted">Intervenções</small></div>
+                            <div class="avatar"><span class="avatar-initial rounded bg-label-primary"><i class="bx bx-list-ul"></i></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="card h-100">
+                        <div class="card-body d-flex justify-content-between align-items-center">
+                            <div><h3 class="mb-0">{{ horas_atuais|floatformat:0 }}h</h3><small class="text-muted">Horímetro</small></div>
+                            <div class="avatar"><span class="avatar-initial rounded bg-label-warning"><i class="bx bx-time"></i></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-4">
+                    <div class="card h-100">
+                        <div class="card-body d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="text-muted fw-semibold">Estado Atual</span>
+                                
+                                {% if chiller_status_realtime == 'ligado' %}
+                                    <h3 class="mb-0 mt-1 text-success">Ligado</h3>
+                                    
+                                {% elif chiller_status_realtime == 'desativado' %}
+                                    <h3 class="mb-0 mt-1 text-danger">Parado</h3>
+                                    
+                                {% elif chiller_status_realtime == 'manutencao' %}
+                                    <h3 class="mb-0 mt-1 text-info">Em Manutenção</h3>
+                                    
+                                {% else %}
+                                    <h3 class="mb-0 mt-1 text-secondary">{{ chiller_status_realtime|default:"Indefinido"|title }}</h3>
+                                {% endif %}
+                            </div>
+                            <div class="avatar"><span class="avatar-initial rounded bg-label-info"><i class="bx bx-pulse"></i></span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header border-bottom"><h5 class="card-title mb-0">Histórico de Manutenção</h5></div>
+                <div class="card-body pt-4">
+                    {% if logs %}
+                        <div class="timeline-wrapper">
+                            {% for log in logs %}
+                            <div class="timeline-item">
+                                <div class="timeline-marker marker-{{ log.tipo }}"></div>
+                                <div class="timeline-content">
+                                    <div class="d-flex justify-content-between mb-1">
+                                        <h6 class="fw-bold mb-0">{{ log.tipo }} - {{ log.categoria }}</h6>
+                                        <small class="text-muted">{{ log.data_intervencao|date:"d/m/Y H:i" }}</small>
+                                    </div>
+                                    <p class="mb-2 text-secondary">{{ log.descricao }}</p>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <span class="badge bg-label-secondary"><i class='bx bx-user me-1'></i> {{ log.tecnico_nome }}</span>
+                                        {% if log.gas_adicionado > 0 %}
+                                            <span class="badge bg-warning text-dark"><i class='bx bxs-flask me-1'></i> +{{ log.gas_adicionado }}kg Gás</span>
+                                        {% endif %}
+                                        {% if log.reset_horimetro %}
+                                            <span class="badge bg-dark text-white"><i class='bx bx-reset me-1'></i> Reset Horas</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class='bx bx-notepad fs-1 text-muted mb-3'></i>
+                            <p class="text-muted">Sem registos para este equipamento.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <div class="alert alert-info d-flex align-items-center" role="alert">
+                <i class="bx bx-info-circle me-2"></i> Selecione um chiller acima para ver o histórico.
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="col-xl-3 col-lg-4 col-md-12 order-0 order-lg-1 mb-4 mb-lg-0">
+        <div class="card sticky-top" style="top: 20px;">
+            <div class="card-body text-center">
+                {% if chiller %}
+                    <div class="avatar avatar-xl border border-secondary rounded-circle mx-auto mb-3">
+                        <span class="avatar-initial rounded-circle bg-label-primary"><i class='bx bx-server bx-md'></i></span>
+                    </div>
+                    <h5 class="mb-1">{{ chiller.nome }}</h5>
+                    <p class="text-muted mb-2">{{ chiller.ipcontrolador }}</p>
+                    <span class="badge bg-label-secondary">{{ chiller.modelo|default:"N/A" }}</span>
+                    <hr class="my-4">
+                    
+                    <div class="text-start mb-4">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="fw-semibold">Ciclo de Revisão</span>
+                            <small>{{ horas_atuais|floatformat:0 }}/10.000h</small>
+                        </div>
+                        <div class="progress mb-2" style="height: 8px;">
+                            <div class="progress-bar {% if progresso_percent > 90 %}bg-danger{% else %}bg-success{% endif %}" 
+                                 role="progressbar" style="width: {{ progresso_percent|floatformat:0 }}%"></div>
+                        </div>
+                    </div>
+
+                    <a href="{% url 'chiller-data' %}?cliente_id={{ cliente.idCliente }}&chiller_id={{ chiller.idChiller }}" class="btn btn-outline-secondary w-100">
+                        <i class='bx bx-line-chart me-1'></i> Voltar aos Gráficos
+                    </a>
+                {% else %}
+                    <p class="text-muted mt-3">Selecione um equipamento.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="modal fade" id="modalNovaIntervencao" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-bottom">
+        <h5 class="modal-title">Nova Intervenção</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form action="{% url 'registar_intervencao' %}" method="POST">
+          {% csrf_token %}
+          <input type="hidden" name="chiller_id" value="{{ chiller.idChiller }}">
+          
+          <div class="modal-body">
+            <div class="row g-2 mb-3">
+                <div class="col-6"><label class="form-label">Técnico</label><input type="text" name="tecnico" class="form-control" required></div>
+                <div class="col-6"><label class="form-label">Tipo</label>
+                    <select name="tipo" class="form-select">
+                        <option value="Preventiva">Preventiva</option><option value="Corretiva">Corretiva</option>
+                        <option value="Regulamentar">Legal / F-Gas</option><option value="Preditiva">Preditiva</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-6"><label class="form-label">Categoria</label>
+                    <select name="categoria" class="form-select">
+                        <option value="Compressores">Compressores</option><option value="Circuito Frigorífico">Gás / Fugas</option>
+                        <option value="Elétrica">Elétrica</option><option value="Outra">Outra</option>
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label class="form-label">Gás (kg)</label>
+                    <input type="number" step="0.01" name="gas_kg" class="form-control" placeholder="0.00">
+                    <div class="form-check mt-1">
+                        <input class="form-check-input" type="checkbox" name="teste_fugas" id="cf"><label for="cf" class="form-check-label small">Teste Fugas</label>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3"><label class="form-label">Relatório</label><textarea class="form-control" name="descricao" rows="3" required></textarea></div>
+            
+            <div class="alert alert-secondary p-2 d-flex align-items-center">
+                <div class="form-check mb-0">
+                    <input class="form-check-input" type="checkbox" name="reset_horimetro" id="cr">
+                    <label class="form-check-label fw-bold text-dark small" for="cr">Reiniciar Horímetro (Apenas Revisão Geral)</label>
+                </div>
+            </div>
+          </div>
+          <div class="modal-footer sticky-bottom border-top bg-white d-flex justify-content-end gap-2 p-3">
+            <button type="button" class="btn btn-secondary px-4" data-bs-dismiss="modal">
+                Cancelar
+            </button>
+
+            <button type="submit" class="btn btn-primary px-4 fw-bold">
+                <i class='bx bx-send me-1'></i> Gravar
+            </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+{{ block.super }}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const sel = document.getElementById('chillerSelect');
+    if(sel) {
+        sel.addEventListener('change', function() {
+            const url = new URL(window.location.href);
+            url.searchParams.set('chiller_id', this.value);
+            window.location.href = url.toString();
+        });
+    }
+});
+</script>
+{% endblock page_js %}

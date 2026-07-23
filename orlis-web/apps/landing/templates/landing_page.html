@@ -1,0 +1,122 @@
+{% extends layout_path %}
+
+{% load static %}
+{% load i18n %}
+
+{% block title %}Landing{% endblock %}
+
+{% block vendor_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'vendor/libs/nouislider/nouislider.css' %}" />
+<link rel="stylesheet" href="{% static 'vendor/libs/swiper/swiper.css' %}" />
+{% endblock vendor_css %}
+
+{% block vendor_js %}
+{{ block.super }}
+<script src="{% static 'vendor/libs/nouislider/nouislider.js' %}"></script>
+<script src="{% static 'vendor/libs/swiper/swiper.js' %}"></script>
+{% endblock vendor_js %}
+
+{% block page_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static  'vendor/css/pages/front-page-landing.css' %}">
+{% endblock page_css %}
+
+{% block page_js %}
+{{ block.super }}
+<script src="{% static 'js/front-page-landing.js' %}"></script>
+{% endblock page_js %}
+
+
+{% block content %}
+<div data-bs-spy="scroll" class="scrollspy-example">
+  <!-- Hero: Start -->
+  <section id="hero-animation">
+    <div id="home" class="section-py landing-hero position-relative">
+      <img src="{% static 'img/front-pages/backgrounds/hero-bg-black-defect.png' %}" alt="hero background" class="position-absolute top-0 start-50 translate-middle-x object-fit-cover w-100 h-100" data-speed="1" />
+      <div class="container">
+        <div class="hero-text-box text-center position-relative">
+          <h1 class="text-primary hero-title display-6 fw-extrabold">
+            <span class="app-brand-logo-front demo">
+              {% include 'partials/logo_black.html' %}
+            </span>
+          </h1>
+
+
+
+          <div class="landing-hero-btn d-inline-block position-relative">
+
+            <a href="{% url 'landing-page' %}#landingPricing" class="btn btn-lg btn-light" style="color: #003366;">
+              Acessar nossa Solução
+            </a>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </section>
+  <!-- Hero: End -->
+
+<section id="features" class="section-py landing-features">
+  <div class="container">
+    <div class="text-center mb-4">
+      <span class="badge bg-label-primary">Funcionalidades</span>
+    </div>
+    <h4 class="text-center mb-1">
+      <span class="position-relative fw-extrabold z-1">ORLIS
+        <img src="{% static 'img/front-pages/icons/section-title-icon-blue2.png' %}" alt="section icon" class="section-title-img position-absolute object-fit-contain bottom-0 z-n1">
+      </span>
+      Plataforma Inteligente para Otimização de Sistemas de Refrigeração e Gestão de Carga
+    </h4>
+    <p class="text-center mb-12">
+      O ORLIS é uma plataforma inteligente e modular, capaz de conectar-se a qualquer sistema de refrigeração industrial, recolher dados em tempo real e aplicar algoritmos avançados de inteligência artificial para otimizar consumos, prever falhas e aumentar a eficiência operacional.
+    </p>
+
+    <div class="features-icon-wrapper row gx-4 gy-4">
+      <div class="col-md-6 text-center features-icon-box">
+        <div class="text-center mb-4">
+          <i class="bx bx-plug fs-1" style="color:#003366"></i> <!-- Ícone: Conectividade -->
+        </div>
+        <h5 class="mb-2">Conectividade Universal</h5>
+        <p class="features-icon-description">
+          Integra-se facilmente com qualquer sistema ou controlador de refrigeração através de interfaces abertas e APIs padrão.
+        </p>
+      </div>
+      <div class="col-md-6 text-center features-icon-box">
+        <div class="text-center mb-4">
+          <i class="bx bx-brain fs-1" style="color:#003366"></i> <!-- Ícone: Inteligência Artificial -->
+        </div>
+        <h5 class="mb-2">Otimização com Inteligência Artificial</h5>
+        <p class="features-icon-description">
+          Utiliza algoritmos de IA para analisar padrões de operação, sugerir ajustes e reduzir consumos energéticos sem comprometer a performance.
+        </p>
+      </div>
+      <div class="col-md-6 text-center features-icon-box">
+        <div class="text-center mb-4">
+          <i class="bx bx-bar-chart-alt-2 fs-1" style="color:#003366"></i> <!-- Ícone: Monitorização -->
+        </div>
+        <h5 class="mb-2">Monitorização em Tempo Real</h5>
+        <p class="features-icon-description">
+          Fornece dados detalhados de temperatura, pressão, consumo elétrico e outros parâmetros críticos diretamente no dashboard web ou móvel.
+        </p>
+      </div>
+      <div class="col-md-6 text-center features-icon-box">
+        <div class="text-center mb-4">
+          <i class="bx bx-bulb fs-1" style="color:#003366"></i> <!-- Ícone: Insights -->
+        </div>
+        <h5 class="mb-2">Insights e Previsões</h5>
+        <p class="features-icon-description">
+          Gera previsões e recomendações personalizadas para manutenção preventiva, maximização de eficiência e redução de custos operacionais.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- Funcionalidades Úteis: Fim -->
+
+</div>
+{% endblock content %}

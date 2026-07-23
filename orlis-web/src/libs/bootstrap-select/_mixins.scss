@@ -1,0 +1,25 @@
+@import '../../scss/_bootstrap-extended/functions';
+
+@mixin bs-select-theme($background, $color: null) {
+  .bootstrap-select {
+    .dropdown-menu.inner a[aria-selected='true'] {
+      background: rgba($background, 0.16) !important;
+      color: $background !important;
+    }
+    .dropdown-menu {
+      li.active,
+      li:active {
+        small {
+          color: $background !important;
+        }
+      }
+      .dropdown-item.selected span::before {
+        color: $background !important;
+      }
+    }
+    // Fix: To add focus border, .bootstrap-select adding border but not able to update as we can not have the focus on div
+    .dropdown-toggle.show {
+      border-color: $background;
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "menu": [
+    {
+      "url": "index",
+      "icon": "menu-icon tf-icons bx bx-home-circle",
+      "name": "Chillers",
+      "slug": "index"
+    },
+    {
+      "url": "tables",
+      "icon": "menu-icon tf-icons bx bx-table",
+      "name": "Tabela clientes",
+      "slug": "table"
+    }
+  ]
+}

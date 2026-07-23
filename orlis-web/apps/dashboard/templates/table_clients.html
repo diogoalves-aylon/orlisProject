@@ -1,0 +1,310 @@
+{% extends layout_path %}
+
+{% load static %}
+{% load i18n %}
+
+{% block title %}Lista de Clientes{% endblock %}
+
+{% block vendor_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'vendor/libs/bootstrap-datepicker/bootstrap-datepicker.css' %}" />
+<link rel="stylesheet" href="{% static 'vendor/libs/apex-charts/apex-charts.css' %}" />
+{% endblock vendor_css %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Clientes</h2>
+
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Logo</th>
+                    <th>Nome</th>
+                    <th>Email</th>
+                    <th>Telefone</th>
+                    <th>Localidade</th>
+                    <th>NIF</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cliente in clientes %}
+                <tr id="cliente-row-{{ cliente.idCliente }}">
+                    <td>
+                        {% if cliente.logo %}
+                            <img src="{% url 'cliente-logo' cliente.idCliente %}" alt="Logo de {{ cliente.nome }}" style="max-height: 40px;" onerror="this.src='https://via.placeholder.com/40x40?text=Logo';">
+                        {% else %}
+                            <span class="text-muted">Sem logo</span>
+                        {% endif %}
+                    </td>
+                    <td class="cliente-nome">{{ cliente.nome }}</td>
+                    <td class="cliente-email">{{ cliente.email }}</td>
+                    <td class="cliente-telefone">{{ cliente.telefone }}</td>
+                    <td class="cliente-localidade">{{ cliente.localidade }}</td>
+                    <td class="cliente-nif">{{ cliente.nif }}</td>
+                    <td>
+                        <div class="dropdown">
+                            <button class="btn p-0" type="button" data-bs-toggle="dropdown">
+                                <i class="bx bx-dots-vertical-rounded"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li>
+                                    <a class="dropdown-item edit-btn" href="#"
+                                        data-id="{{ cliente.idCliente }}"
+                                        data-nome="{{ cliente.nome }}"
+                                        data-email="{{ cliente.email }}"
+                                        data-telefone="{{ cliente.telefone }}"
+                                        data-localidade="{{ cliente.localidade }}"
+                                        data-nif="{{ cliente.nif }}"
+                                        data-logo-url="{% if cliente.logo %}{% url 'cliente-logo' cliente.idCliente %}{% endif %}">
+                                        <i class="icon-base bx bx-edit-alt me-2"></i> Editar
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item text-danger delete-btn" href="#" data-id="{{ cliente.idCliente }}">
+                                        <i class="icon-base bx bx-trash me-2"></i> Remover
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item view-chillers-btn" href="#" data-id="{{ cliente.idCliente }}">
+                                        <i class="icon-base bx bx-show me-2"></i> Ver Chillers
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7" class="text-center">Nenhum cliente encontrado.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <form id="editForm" method="POST" enctype="multipart/form-data" action="{% url 'cliente_update' %}">
+      {% csrf_token %}
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editModalLabel">Editar Cliente</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="editClienteId" name="cliente_id">
+
+          <div class="mb-3 text-center">
+            <img id="previewLogo" src="https://via.placeholder.com/100x100?text=No+Logo" 
+                 alt="Logo" class="img-thumbnail mb-2" style="max-height: 100px;">
+          </div>
+          <div class="mb-3">
+             <label for="editClienteLogoInput" class="form-label">Alterar Logo</label>
+             <input type="file" class="form-control" id="editClienteLogoInput" name="logo" accept="image/*">
+          </div>
+
+          <div class="mb-3">
+            <label for="editClienteNome" class="form-label">Nome</label>
+            <input type="text" class="form-control" id="editClienteNome" name="nome" required>
+          </div>
+          
+          <div class="mb-3">
+            <label for="editClienteEmail" class="form-label">Email</label>
+            <input type="email" class="form-control" id="editClienteEmail" name="email" required>
+          </div>
+
+          <div class="mb-3">
+            <label for="editClienteTelefone" class="form-label">Telefone</label>
+            <input type="text" class="form-control" id="editClienteTelefone" name="telefone">
+          </div>
+
+          <div class="mb-3">
+            <label for="editClienteLocalidade" class="form-label">Localidade</label>
+            <input type="text" class="form-control" id="editClienteLocalidade" name="localidade">
+          </div>
+
+          <div class="mb-3">
+            <label for="editClienteNif" class="form-label">NIF</label>
+            <input type="text" class="form-control" id="editClienteNif" name="nif">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal de Chillers -->
+<div class="modal fade" id="chillerModal" tabindex="-1" aria-labelledby="chillerModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="chillerModalLabel">Chillers do Cliente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body" id="chillerModalBody">
+        <p>A carregar...</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block vendor_js %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const editModalEl = document.getElementById('editModal');
+    const editModal = new bootstrap.Modal(editModalEl);
+    const chillerModal = new bootstrap.Modal(document.getElementById('chillerModal'));
+
+    // --- 1. EDIT MODAL ---
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            
+            document.getElementById('editClienteId').value = this.dataset.id;
+            document.getElementById('editClienteNome').value = this.dataset.nome;
+            document.getElementById('editClienteEmail').value = this.dataset.email;
+            document.getElementById('editClienteTelefone').value = this.dataset.telefone;
+            document.getElementById('editClienteLocalidade').value = this.dataset.localidade;
+            document.getElementById('editClienteNif').value = this.dataset.nif;
+
+            const logoUrl = this.dataset.logoUrl; 
+            const imgPreview = document.getElementById('previewLogo');
+            
+            if (logoUrl && logoUrl !== 'None' && logoUrl !== '') {
+                imgPreview.src = logoUrl;
+            } else {
+                imgPreview.src = 'https://via.placeholder.com/100x100?text=No+Logo';
+            }
+            
+            document.getElementById('editClienteLogoInput').value = '';
+
+            editModal.show();
+        });
+    });
+
+    // --- 2. EDIT FORM
+   document.getElementById('editForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const form = document.getElementById('editForm');
+        const formData = new FormData(form);
+
+        fetch("{% url 'cliente_update' %}", {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: formData 
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const id = document.getElementById('editClienteId').value;
+                const row = document.getElementById(`cliente-row-${id}`);
+
+                row.querySelector('.cliente-nome').textContent = formData.get('nome');
+                row.querySelector('.cliente-email').textContent = formData.get('email');
+                row.querySelector('.cliente-telefone').textContent = formData.get('telefone');
+                row.querySelector('.cliente-localidade').textContent = formData.get('localidade');
+                row.querySelector('.cliente-nif').textContent = formData.get('nif');
+
+                if (data.new_logo_url) {
+                    const imgTag = row.querySelector('td:first-child img');
+                    if (imgTag) {
+                        imgTag.src = data.new_logo_url;
+                    } else {
+                        location.reload(); 
+                    }
+                }
+
+                editModal.hide();
+                // Optional: Show a success toast
+            } else {
+                alert('Erro: ' + (data.message || 'Erro ao atualizar cliente.'));
+            }
+        })
+        .catch(err => console.error(err));
+    });
+
+    // --- 3. REMOVE CLIENTE ---
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            const id = this.dataset.id;
+            if (confirm('Tem certeza que deseja remover este cliente?')) {
+                fetch("{% url 'cliente_delete' %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}'
+                    },
+                    body: JSON.stringify({ id: id })
+                })
+                .then(res => {
+                    // Verificar se a resposta HTTP é OK (200-299)
+                    if (!res.ok) {
+                        return res.json().then(err => { throw new Error(err.message || 'Erro no servidor'); });
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        const row = document.getElementById(`cliente-row-${id}`);
+                        if(row) row.remove();
+                    } else {
+                        alert('Erro: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    alert('Não foi possível apagar: ' + error.message);
+                });
+            }
+        });
+    });
+
+    // --- 4. VER CHILLERS ---
+    document.querySelectorAll('.view-chillers-btn').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            const id = this.dataset.id;
+            
+            document.getElementById('chillerModalBody').innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div></div>';
+            chillerModal.show();
+
+            fetch(`{% url 'cliente_chiller_detail' %}?id=${id}`)
+                .then(res => res.json())
+                .then(data => {
+                    let html = `<h5>${data.nome} – ${data.email}</h5><hr>`;
+                    if (data.chillers && data.chillers.length > 0) {
+                        html += '<div class="list-group">';
+                        data.chillers.forEach(c => {
+                            html += `<div class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between">
+                                  <h6 class="mb-1"><strong>${c.nome}</strong></h6>
+                                  <small>${c.ipcontrolador || 'No IP'}</small>
+                                </div>
+                                <p class="mb-1">Marca: ${c.marca || '—'} | Modelo: ${c.modelo || '—'}</p>
+                            </div>`;
+                        });
+                        html += '</div>';
+                    } else {
+                        html += '<div class="alert alert-warning">Nenhum chiller associado a este cliente.</div>';
+                    }
+                    document.getElementById('chillerModalBody').innerHTML = html;
+                })
+                .catch(() => {
+                    document.getElementById('chillerModalBody').innerHTML = "<p class='text-danger'>Erro ao carregar dados.</p>";
+                });
+        });
+    });
+});
+</script>
+{% endblock vendor_js %}

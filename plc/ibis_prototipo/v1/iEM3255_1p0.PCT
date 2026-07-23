@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- #DEFINE PREFIX iEM3255_1p0 -->
+<devicetemplate>
+	<deviceinfo caption="iEM3255" name="iEM3255" version="1.0" icon="modbus.ico" deviceid="iEM3255_1p0" editingEnabled="true">
+		<description>Medidor Schneider – energia, corrente, tensão</description>
+		<protocols>
+			<protocol>FreeEvolution_ModbusRTU_master</protocol><protocol>FreeAdvance_ModbusRTU_master</protocol><protocol>FreeSmart_ModbusRTU_master</protocol></protocols>
+	</deviceinfo>
+	<deviceconfig>
+		<parameters nextIpa="5">
+			<!--		<par ipa="1" readonly="no" name="Example" typepar="short" typetarg="short" defval="0" scale="1" offs="0" um="" form="" descr="Example parameter" min="0" max="9999" shortdescr=""/>
+				<protocol name="Modbus" commaddr="1" commsubindex="0"/>
+			</par> -->
+			<par ipa="0" readonly="false" name="Corrente_L1" typepar="float" typetarg="float" form="" descr="Corrente fase L1">
+				<protocol name="Modbus" commaddr="3000" commsubindex="0"/>
+			</par>
+			<par ipa="1" readonly="false" name="Corrente_L2" typepar="float" typetarg="float" form="" descr="Corrente fase L2">
+				<protocol name="Modbus" commaddr="3002" commsubindex="0"/>
+			</par>
+			<par ipa="2" readonly="false" name="Corrente_L3" typepar="float" typetarg="float" form="" descr="Corrente fase L3">
+				<protocol name="Modbus" commaddr="3004" commsubindex="0"/>
+			</par>
+			<par ipa="3" readonly="false" name="Potencia_Ativa" typepar="float" typetarg="float" form="" descr="Potencia ativa (kW)">
+				<protocol name="Modbus" commaddr="3053" commsubindex="0"/>
+			</par>
+			<par ipa="4" readonly="false" name="Energia_Total" typepar="float" typetarg="float" form="" descr="Energia acumulada (kWh)">
+				<protocol name="Modbus" commaddr="3203" commsubindex="0"/>
+			</par>
+		</parameters>
+	</deviceconfig>
+	<plcconfig>
+		<hmi>
+			<tree name="tree1">
+				<node name="PREFIX" caption="iEM3255" icon="modbus.ico" datalink="PREFIX" menu="menuRemove" window="ModbusCustomMain"/>
+			</tree>
+		</hmi>
+		<templatedata>
+			<PREFIX>
+				<ModbusCustom_config>
+					<modbusAddress>1</modbusAddress>
+					<nodeNumber>-1</nodeNumber>
+					<pollTime>0</pollTime>
+					<timeout>1000</timeout>
+					<manualcfg/>
+					<inputs/>
+					<outputs/>
+					<turnAround>10</turnAround>
+					<minPollTime>0</minPollTime>
+					<ip/>
+					<nodeID>0</nodeID>
+				</ModbusCustom_config>
+			</PREFIX>
+		</templatedata>
+		<datadef version="2.0">
+			<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+				<xs:element name="PREFIX">
+					<xs:complexType>
+						<xs:complexContent>
+							<xs:extension base="TModbusCustom">
+								<xs:attribute name="overlappedBitRegMaps" type="xs:boolean" fixed="0"/>
+								<xs:attribute name="maxMsgSizeReg" type="xs:integer" fixed="16"/>
+								<xs:attribute name="maxMsgSizeBit" type="xs:integer" fixed="2000"/>
+								<xs:attribute name="wordsOrder" type="xs:integer" fixed="0"/>
+								<xs:attribute name="useWriteSingleCoil" type="xs:boolean" fixed="0"/>
+								<xs:attribute name="useWriteSingleReg" type="xs:boolean" fixed="0"/>
+								<xs:attribute name="addressType" type="xs:string" fixed="modbus"/>
+							</xs:extension>
+						</xs:complexContent>
+					</xs:complexType>
+				</xs:element>
+			</xs:schema>
+		</datadef>
+	</plcconfig>
+</devicetemplate>

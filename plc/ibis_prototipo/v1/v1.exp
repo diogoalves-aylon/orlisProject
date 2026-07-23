@@ -1,0 +1,56 @@
+﻿	(******************************)
+	(*                            *)
+	(*     EXPORTED VARIABLES     *)
+	(*                            *)
+	(******************************)
+
+        VAR_GLOBAL
+	{G:"Status_variables"}
+T1_output AT %MW110.0 : INT := 0;
+T2_output AT %MW110.1 : INT := 0;
+T3_output AT %MW110.2 : INT := 0;
+T4_output AT %MW110.3 : INT := 0;
+T5_output AT %MW110.4 : INT := 0;
+P1_output AT %MW110.5 : INT := 0;
+P2_output AT %MW110.6 : INT := 0;
+Corrente_HIGH_L1 AT %MW110.7 : WORD;
+Corrente_LOW_L1 AT %MW110.8 : WORD;
+Corrente_HIGH_L2 AT %MW110.9 : WORD;
+Corrente_LOW_L2 AT %MW110.10 : WORD;
+Corrente_HIGH_L3 AT %MW110.11 : WORD;
+Corrente_LOW_L3 AT %MW110.12 : WORD;
+Corrente_L1 AT %MW110.14 : REAL;
+Corrente_L2 AT %MW110.16 : REAL;
+Corrente_L3 AT %MW110.18 : REAL;
+Tensao_HIGH_L1_L2 AT %MW110.20 : WORD;
+Tensao_LOW_L1_L2 AT %MW110.21 : WORD;
+Tensao_HIGH_L2_L3 AT %MW110.22 : WORD;
+Tensao_LOW_L2_L3 AT %MW110.23 : WORD;
+Tensao_HIGH_L3_L1 AT %MW110.24 : WORD;
+Tensao_LOW_L3_L1 AT %MW110.25 : WORD;
+Tensao_L1_L2 AT %MW110.26 : REAL;
+Tensao_L2_L3 AT %MW110.28 : REAL;
+Tensao_L3_L1 AT %MW110.30 : REAL;
+EnergiaAtivaParcial_HIGH AT %MW110.32 : WORD;
+EnergiaAtivaParcial_LOW AT %MW110.33 : WORD;
+EnergiaAtivaParcial AT %MW110.34 : REAL;
+EnergiaReativaParcial_HIGH AT %MW110.36 : WORD;
+EnergiaReativaParcial_LOW AT %MW110.37 : WORD;
+EnergiaReativaParcial AT %MW110.38 : REAL;
+EnergiaAtivaTotal_HIGH AT %MW110.40 : WORD;
+EnergiaAtivaTotal_LOW AT %MW110.41 : WORD;
+EnergiaAtivaTotal AT %MW110.42 : REAL;
+EnergiaReativaTotal_HIGH AT %MW110.44 : WORD;
+EnergiaReativaTotal_LOW AT %MW110.45 : WORD;
+EnergiaReativaTotal AT %MW110.46 : REAL;
+	{G:"IO_Mapping"}
+T1_input AT %IW1.0 : INT;	{ DE:"AIL1 analogue input" }
+T2_input AT %IW1.1 : INT;	{ DE:"AIL2 analogue input" }
+T3_input AT %IW1.2 : INT;	{ DE:"AIL3 analogue input" }
+T4_input AT %IW1.3 : INT;	{ DE:"AIL4 analogue input" }
+T5_input AT %IW1.4 : INT;	{ DE:"AIL5 analogue input" }
+P1_input AT %IW1.6 : INT;	{ DE:"AIL7 analogue input" }
+P2_input AT %IW1.7 : INT;	{ DE:"AIL8 analogue input" }
+Status_input AT %IX0.0 : BOOL;	{ DE:"DIL1 digital input" }
+	END_VAR
+

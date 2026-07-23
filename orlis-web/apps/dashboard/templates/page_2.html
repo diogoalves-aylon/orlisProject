@@ -1,0 +1,480 @@
+{% extends layout_path %}
+
+{% load static %}
+{% load i18n %}
+
+{% block title %}Dados Chiller - Monitorização{% endblock %}
+
+{% block vendor_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'vendor/libs/apex-charts/apex-charts.css' %}" />
+<style>
+    .card-body { position: relative; z-index: 1; }
+    
+    .apexcharts-tooltip {
+        background: #fff !important;
+        border-color: #d9dee3 !important;
+        box-shadow: 0 0.25rem 1rem rgba(161, 172, 184, 0.45) !important;
+        color: #566a7f !important;
+        z-index: 9999 !important; /* Fica sempre no topo */
+    }
+    .apexcharts-tooltip-title {
+        background: #f5f5f9 !important;
+        border-bottom: 1px solid #d9dee3 !important;
+        font-family: 'Public Sans', sans-serif !important;
+        font-size: 12px !important;
+        margin-bottom: 5px;
+        color: #000 !important; /* Hora a preto */
+    }
+    .apexcharts-tooltip-text-y-value {
+        font-weight: bold;
+        color: #000 !important; /* Valor a preto */
+    }
+</style>
+{% endblock vendor_css %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="row">
+    
+    <div class="col-md-9">
+      
+      <div class="row mb-4 align-items-center">
+        <div class="col-md-9 d-flex align-items-center">
+          <div class="me-3">
+            {% if cliente %}
+            <div class="avatar avatar-md border rounded">
+                <img src="{% url 'cliente-logo' cliente.idCliente %}" alt="Logo" class="img-fluid" onerror="this.style.display='none'">
+            </div>
+            {% endif %}
+          </div>
+          <div>
+            {% if cliente %}
+              <h4 class="mb-0">{{ cliente.nome }}</h4>
+              <small class="text-muted">{{ cliente.email }}</small>
+            {% else %}
+              <h4 class="mb-0 text-muted">Selecione um Cliente</h4>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-body py-3">
+            <div class="row align-items-center">
+                <div class="col-md-4">
+                    <label class="form-label mb-0 fw-bold">Selecionar Equipamento</label>
+                </div>
+                <div class="col-md-8">
+                    <select id="chillerSelect" class="form-select">
+                        <option value="">-- Escolha um chiller --</option>
+                        {% for c in chillers %}
+                          <option value="{{ c.idChiller }}"
+                            {% if chiller and c.idChiller == chiller.idChiller %}selected{% endif %}>
+                            {{ c.nome }} - {{ c.localizacao }} ({{ c.ipcontrolador }})
+                          </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+      </div>
+
+      {% if chiller %}
+      <div class="card mb-4 border-0 shadow-sm">
+        <div class="card-body">
+            <div class="row g-3 align-items-center">
+                
+                <div class="col-md-5 border-end-md">
+                    <div class="d-flex align-items-center">
+                        <div class="avatar avatar-md me-3">
+                            <span class="avatar-initial rounded bg-label-primary">
+                                <i class='bx bx-server fs-4'></i>
+                            </span>
+                        </div>
+                        <div>
+                            <h5 class="mb-0 text-dark">{{ chiller.marca|default:"N/A" }}</h5>
+                            <small class="text-muted">{{ chiller.modelo|default:"Modelo N/A" }}</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-3 border-end-md">
+                    <div class="d-flex align-items-center">
+                        <div class="avatar avatar-md me-3">
+                            <span class="avatar-initial rounded bg-label-secondary">
+                                <i class='bx bx-barcode fs-4'></i>
+                            </span>
+                        </div>
+                        <div>
+                            <h6 class="mb-0 text-dark">{{ chiller.n_serie|default:"N/A" }}</h6>
+                            <small class="text-muted">Nº de Série</small>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="d-flex justify-content-md-end gap-2">
+                        <div class="d-flex align-items-center px-3 py-2 rounded bg-label-info">
+                            <div>
+                                <small class="d-block text-muted" style="font-size: 0.7rem; line-height: 1;">IP CONTROLADOR</small>
+                                <span class="fw-bold">{{ chiller.ipcontrolador }}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex align-items-center px-3 py-2 rounded bg-label-warning">
+                            <div>
+                                <small class="d-block text-muted" style="font-size: 0.7rem; line-height: 1;">FLUIDO</small>
+                                <span class="fw-bold">{{ chiller.gas|default:"R407C" }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="row mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header d-flex justify-content-between">
+              <h5 class="mb-0"><i class='bx bx-bolt-circle me-2'></i>Consumo Energético</h5>
+              {% if cliente and chiller %}
+                <a href="{% url 'page-5' %}?cliente_id={{ cliente.idCliente }}&chiller_id={{ chiller.idChiller }}" class="btn btn-sm btn-outline-secondary">
+                  <i class='bx bx-list-ul me-1'></i> Ver Logs
+                </a>
+              {% endif %}
+            </div>
+            <div class="card-body">
+              <div id="energyLineChart"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header">
+              <h5 class="mb-0"><i class='bx bx-tachometer me-2'></i>Potência</h5>
+            </div>
+            <div class="card-body">
+              <div id="powerAreaChart"></div> </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row mb-4">
+        <div class="col-12">
+          <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class='bx bx-thermometer me-2'></i>Temperaturas e Ciclo</h5>
+                <small class="text-muted">Ambiente (Bragança): <span id="braganca-temp-display" class="fw-bold">--</span>°C</small>
+            </div>
+            <div class="card-body">
+              <div id="temperatureLineChart"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="col-md-3">
+
+      <div class="text-end mb-3">
+        <small class="text-muted d-block" style="font-size: 0.75rem;">Powered by</small>
+        <img src="{% static 'img/logo_arcoxxi.png' %}" alt="Logo Arco" class="img-fluid" style="max-height: 35px;">
+      </div>
+      
+      <div class="card sticky-top border-0 shadow" style="top: 20px;">
+        <div class="card-header bg-primary text-white p-3 text-center">
+            <h5 class="card-title text-white mb-0">Resumo</h5>
+        </div>
+        <div class="card-body mt-3">
+            {% if chiller %}
+                <div class="text-center mb-4">
+                    {% with status=chiller_status_realtime|lower|default:'offline' %}
+                    <h3 class="mb-0 fw-bold {% if 'ligado' in status or 'ativo' in status or 'on' in status %}text-success{% else %}text-danger{% endif %}">
+                        {{ chiller_status_realtime|upper|default:"OFFLINE" }}
+                    </h3>
+                    {% endwith %}
+                    
+                    <span id="sidebar-ciclo" class="badge bg-label-secondary mt-1">
+                        {{ chiller_ciclo_realtime|default:'--'|capfirst }}
+                    </span>
+                </div>
+
+                <div class="row text-center border-top border-bottom py-3 mb-3">
+                    <div class="col-6 border-end">
+                        <small class="text-muted d-block">COP (Rend.)</small>
+                        <h4 class="mb-0 text-primary">
+                            <span id="sidebar-rendimento">{{ rendimento|floatformat:2|default:'--' }}</span>
+                        </h4>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block">Potência</small>
+                        <h4 class="mb-0">
+                            <span id="sidebar-potencia-val">{{ medidor_values.PotenciaAtivaTotal_kW|floatformat:1|default:'0' }}</span> 
+                            <small>kW</small>
+                        </h4>
+                    </div>
+                </div>
+
+                <div class="mb-4 text-center">
+                    <small class="text-muted text-uppercase" style="font-size: 0.7rem;">Custo Instantâneo</small>
+                    <h3 class="fw-bold text-success mb-0">
+                        <span id="sidebar-custo-val">{{ medidor_values.Custo|floatformat:3|default:'0.00' }}</span> 
+                        <small class="fs-6 text-muted">€/h</small>
+                    </h3>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <a href="{% url 'cliente-relatorio' %}?cliente_id={{ cliente.idCliente }}&chiller_id={{ chiller.idChiller }}"
+                      class="btn btn-primary shadow-sm">
+                      <i class='bx bx-file me-1'></i> RELATÓRIO PDF
+                    </a>
+                    
+                    <a href="{% url 'livro_obra' %}?cliente_id={{ cliente.idCliente }}&chiller_id={{ chiller.idChiller }}" 
+                      class="btn btn-outline-dark d-flex align-items-center justify-content-center">
+                        <i class='bx bx-wrench me-2'></i> LIVRO DE OBRA
+                    </a>
+                </div>
+
+            {% else %}
+                <div class="text-center py-5">
+                    <i class='bx bx-loader-circle bx-spin fs-1 text-muted mb-3'></i>
+                    <p class="text-muted">Selecione um equipamento.</p>
+                </div>
+            {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block vendor_js %}
+{{ block.super }}
+<script src="{% static 'vendor/libs/apex-charts/apexcharts.js' %}"></script>
+{% endblock vendor_js %}
+
+{% block page_js %}
+{{ block.super }}
+<script>
+let tempChart, energyChart, powerChart;
+let sensorDataHistory = [];
+const maxHistory = 40;
+let lastTimestamp = null;
+let isChartInitialized = false;
+
+function toNumber(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function parseTimestamp(ts) {
+  const [datePart, timePart] = ts.split(" ");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute, second] = timePart.split(":").map(Number);
+  return new Date(year, month - 1, day, hour, minute, second).getTime();
+}
+
+let temperatureSensors = [
+  "T1 - Entrada Comp.", "T2 - Saída Comp.", "T3 - Entrada Evap.",
+  "T4 - Saída Evap.", "T5 - Saída Água", "Ambiente (Bragança)"
+];
+
+/* --- CONFIGURAÇÃO GRÁFICOS --- */
+const commonChartConfig = {
+  chart: { height: 320, type: 'line', fontFamily: 'Public Sans, sans-serif', animations: { enabled: false }, toolbar: { show: false }, zoom: { enabled: false }, parentHeightOffset: 0 },
+  dataLabels: { enabled: false },
+  stroke: { curve: 'smooth', width: 3 },
+  markers: { size: 4, strokeColors: '#fff', strokeWidth: 2, hover: { size: 6 } },
+  grid: { show: true, borderColor: '#f1f1f1', strokeDashArray: 4, padding: { top: 0, right: 10, bottom: 0, left: 10 } },
+  xaxis: { type: 'datetime', labels: { datetimeFormatter: { year: 'yyyy', month: 'MMM', day: 'dd MMM', hour: 'HH:mm:ss' }, style: { colors: '#a1acb8', fontSize: '12px' } } },
+  yaxis: { labels: { formatter: val => (typeof val === 'number') ? val.toFixed(2) : val, style: { colors: '#a1acb8' } } },
+  tooltip: { enabled: true, theme: 'dark', shared: true, intersect: false, x: { show: true, format: 'dd MMM HH:mm:ss' }, y: { formatter: val => (typeof val === 'number') ? val.toFixed(2) : val } },
+  legend: { position: 'top', horizontalAlign: 'right' }
+};
+
+function initCharts() {
+  energyChart = new ApexCharts(document.querySelector("#energyLineChart"), {
+    ...commonChartConfig,
+    colors: ['#696cff', '#8592a3'],
+    yaxis: { ...commonChartConfig.yaxis, title: { text: 'kWh' } },
+    series: [{ name: "Total", data: [] }, { name: "Parcial", data: [] }]
+  });
+  energyChart.render();
+
+  powerChart = new ApexCharts(document.querySelector("#powerAreaChart"), {
+    ...commonChartConfig,
+    chart: { ...commonChartConfig.chart, type: 'area' },
+    colors: ['#03c3ec'],
+    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.5, opacityTo: 0.05, stops: [0, 100] } },
+    yaxis: { ...commonChartConfig.yaxis, title: { text: 'kW' } },
+    series: [{ name: "Potência Ativa", data: [] }]
+  });
+  powerChart.render();
+
+  tempChart = new ApexCharts(document.querySelector("#temperatureLineChart"), {
+    ...commonChartConfig,
+    colors: ['#71dd37', '#ff3e1d', '#03c3ec', '#ffab00', '#233446', '#8592a3'],
+    yaxis: { ...commonChartConfig.yaxis, title: { text: '°C' } },
+    series: []
+  });
+  tempChart.render();
+
+  isChartInitialized = true;
+}
+
+function updateCharts() {
+  if (!isChartInitialized) initCharts();
+
+  const tempSeries = temperatureSensors.map(sensor => {
+    let key = "";
+    if (sensor.includes("T1")) key = "T1_output";
+    else if (sensor.includes("T2")) key = "T2_output";
+    else if (sensor.includes("T3")) key = "T3_output";
+    else if (sensor.includes("T4")) key = "T4_output";
+    else if (sensor.includes("T5")) key = "T5_output";
+    else if (sensor.includes("Ambiente")) key = "T_ambiente_output";
+
+    return { name: sensor, data: sensorDataHistory.map(p => ({ x: p.timestamp, y: p[key] })) };
+  });
+
+  const energySeries = [
+    { name: "Total", data: sensorDataHistory.map(p => ({ x: p.timestamp, y: p.EnergiaAtivaTotal_output })) },
+    { name: "Parcial", data: sensorDataHistory.map(p => ({ x: p.timestamp, y: p.EnergiaAtivaParcial_output })) }
+  ];
+
+  const powerSeries = [{ name: "Potência Ativa", data: sensorDataHistory.map(p => ({ x: p.timestamp, y: p.PotenciaAtivaTotal_kW })) }];
+
+  tempChart.updateSeries(tempSeries);
+  energyChart.updateSeries(energySeries);
+  powerChart.updateSeries(powerSeries);
+}
+
+function updateSidebar(latestData) {
+  if (!latestData) return;
+
+  // --- Atualizar Potência ---
+  const potEl = document.getElementById('sidebar-potencia-val');
+  if (potEl) potEl.innerText = toNumber(latestData.PotenciaAtivaTotal_kW).toFixed(1);
+
+  // --- Atualizar Custo (ALTERADO APENAS AQUI) ---
+  const costEl = document.getElementById('sidebar-custo-val');
+  // Usa '??' para apanhar o valor quer venha minúsculo ou maiúsculo
+  const valCusto = latestData.custo ?? latestData.Custo;
+
+  if (costEl && valCusto !== undefined && valCusto !== null) {
+      costEl.innerText = toNumber(valCusto).toFixed(3);
+  }
+
+  // --- Atualizar Rendimento (COP) ---
+  const rendimentoEl = document.getElementById('sidebar-rendimento');
+  if (rendimentoEl) {
+      let val = latestData.rendimento || latestData.COP || latestData.cop;
+      if (val && !isNaN(parseFloat(val))) rendimentoEl.innerText = parseFloat(val).toFixed(2);
+  }
+
+  // --- Atualizar CICLO ---
+  const cicloEl = document.getElementById('sidebar-ciclo');
+  if (cicloEl && latestData.ciclo) {
+      cicloEl.innerText = latestData.ciclo.charAt(0).toUpperCase() + latestData.ciclo.slice(1).toLowerCase();
+      cicloEl.classList.remove('bg-label-secondary', 'bg-label-success', 'bg-label-danger');
+      cicloEl.classList.add('bg-label-info');
+  }
+
+  // --- Atualizar ESTADO ---
+  const estadoEl = document.getElementById('sidebar-estado');
+  if (estadoEl && latestData.estado_chiller) {
+      const estadoStr = latestData.estado_chiller.toString().toUpperCase();
+      estadoEl.innerText = estadoStr;
+      if (['ON', 'LIGADO', 'ATIVO'].includes(estadoStr)) {
+          estadoEl.classList.remove('text-danger'); estadoEl.classList.add('text-success');
+      } else {
+          estadoEl.classList.remove('text-success'); estadoEl.classList.add('text-danger');
+      }
+  }
+}
+
+async function fetchSensorData() {
+  try {
+    const chillerIp = "{{ chiller.ipcontrolador|default:'' }}";
+    if (!chillerIp) return;
+
+    const [sensorResponse, weatherResponse] = await Promise.all([
+      fetch(`/dashboard/api/sensor-data/?ip=${chillerIp}&_=${Date.now()}`),
+      fetch("https://api.open-meteo.com/v1/forecast?latitude=41.806&longitude=-6.756&current=temperature_2m")
+    ]);
+
+    if (!sensorResponse.ok) return;
+
+    const responseData = await sensorResponse.json();
+    const t_amb = (await weatherResponse.json())?.current?.temperature_2m ?? 0;
+    const sensores = responseData.sensor_data || [];
+    if (!sensores.length) return;
+
+    sensores.sort((a,b) => parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp));
+
+    const latestData = sensores[sensores.length - 1];
+    updateSidebar(latestData);
+
+    sensores.forEach(data => {
+      const ts = parseTimestamp(data.timestamp);
+      if (!ts || isNaN(ts)) return;
+      if (lastTimestamp && ts <= lastTimestamp) return;
+      lastTimestamp = ts;
+
+      // Ajuste Condensador/Evaporador
+      const isQuente = (data.ciclo || "").toLowerCase().includes("awe") || (data.ciclo || "").toLowerCase().includes("quente");
+      if (isQuente) { temperatureSensors[2] = "T3 - Ent. Cond."; temperatureSensors[3] = "T4 - Saída Cond."; }
+      else { temperatureSensors[2] = "T3 - Entrada Evap."; temperatureSensors[3] = "T4 - Saída Evap."; }
+
+      sensorDataHistory.push({
+        timestamp: ts,
+        T1_output: toNumber(data.T1_output),
+        T2_output: toNumber(data.T2_output),
+        T3_output: toNumber(data.T3_output),
+        T4_output: toNumber(data.T4_output),
+        T5_output: toNumber(data.T5_output),
+        T_ambiente_output: t_amb,
+        EnergiaAtivaTotal_output: toNumber(data.EnergiaAtivaTotal_output),
+        EnergiaAtivaParcial_output: toNumber(data.EnergiaAtivaParcial_output),
+        PotenciaAtivaTotal_kW: toNumber(data.PotenciaAtivaTotal_kW)
+      });
+    });
+
+    if (sensorDataHistory.length > maxHistory)
+      sensorDataHistory = sensorDataHistory.slice(-maxHistory);
+
+    if (sensorDataHistory.length) updateCharts();
+
+    const display = document.getElementById("braganca-temp-display");
+    if (display) display.innerText = t_amb.toFixed(1);
+
+  } catch (err) {
+    console.error("Erro fetch:", err);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const sel = document.getElementById('chillerSelect');
+  if (sel) {
+    sel.addEventListener('change', function() {
+      const url = new URL(window.location.href);
+      url.searchParams.set('chiller_id', this.value);
+      window.location.href = url.toString();
+    });
+  }
+
+  if ("{{ chiller.ipcontrolador }}") {
+    fetchSensorData();
+    setInterval(fetchSensorData, 3000);
+  }
+});
+</script>
+
+{% endblock page_js %}
