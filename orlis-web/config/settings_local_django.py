@@ -130,6 +130,14 @@ DATABASES = {
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 MONGO_DB_NAME = os.environ.get('MONGO_DB_NAME', 'orlis_db')
 
+# MQTT (listener de telemetria dos chillers)
+MQTT_HOST = os.environ.get('MQTT_HOST', 'localhost')
+MQTT_PORT = int(os.environ.get('MQTT_PORT', '1883'))
+MQTT_USERNAME = os.environ.get('MQTT_USERNAME') or None
+MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD') or None
+MQTT_METADATA_REFRESH_SECONDS = int(os.environ.get('MQTT_METADATA_REFRESH_SECONDS', '300'))
+MQTT_TIMESTAMP_MAX_SKEW_SECONDS = int(os.environ.get('MQTT_TIMESTAMP_MAX_SKEW_SECONDS', '3600'))
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
