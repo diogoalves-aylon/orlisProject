@@ -37,6 +37,10 @@ DEFAULT_MODO = "ARREFECIMENTO"
 LIMIAR_CORRENTE_ATIVO = 2.0
 IDADE_COMPRESSOR_FATOR = 0.07
 
+# Abaixo deste rácio de pressões absolutas (P2/P1) o ciclo não é fisicamente credível.
+# Ver _aviso_racio_pressoes().
+RACIO_PRESSOES_MINIMO = 2.0
+
 MODO_MAP = {'verao': 'ARREFECIMENTO', 'frio': 'ARREFECIMENTO', 'inverno': 'AQUECIMENTO', 'quente': 'AQUECIMENTO'}
 
 # Fuso horário dos chillers (Portugal), para calcular "agora" independentemente do TIME_ZONE
@@ -234,6 +238,56 @@ def calc_entalpia(temp_C, pressao_bar, fluido):
         return None
 
 
+def _motivo_entalpia_indisponivel(ponto, temp_C, pressao_bar, fluido):
+    """Explica em texto porque é que a entalpia de um ponto do ciclo não foi calculável.
+
+    Sem isto o documento fica com rendimento a null e aviso vazio, e não há como
+    distinguir um sensor em falta de um ponto fisicamente impossível — que é
+    precisamente o caso dos dados reais de 2026-07-24, em que o T4 cai na zona
+    bifásica por o lado de baixa estar a marcar 17 bar."""
+    if temp_C is None or pressao_bar is None:
+        return f"{ponto}: falta a leitura de temperatura ou de pressão"
+    if not _HAS_COOLPROP:
+        return f"{ponto}: CoolProp indisponível"
+
+    try:
+        P_abs = (pressao_bar + 1.01325) * 1e5
+        t_bolha = PropsSI("T", "P", P_abs, "Q", 0, fluido) - 273.15
+        t_orvalho = PropsSI("T", "P", P_abs, "Q", 1, fluido) - 273.15
+    except Exception:
+        return f"{ponto}: {pressao_bar:.2f} bar fora do domínio do {fluido}"
+
+    if t_bolha <= temp_C <= t_orvalho:
+        return (
+            f"{ponto}: {temp_C:.1f} °C a {pressao_bar:.2f} bar cai na zona bifásica do "
+            f"{fluido} (bolha {t_bolha:.1f} °C, orvalho {t_orvalho:.1f} °C), onde a "
+            "temperatura e a pressão não são independentes e a entalpia não fica definida"
+        )
+    return f"{ponto}: o CoolProp não resolveu {temp_C:.1f} °C a {pressao_bar:.2f} bar em {fluido}"
+
+
+def _aviso_racio_pressoes(pressoes):
+    """Um chiller de compressão em funcionamento tem P2/P1 (absolutas) na casa dos 3 a 5.
+    Um rácio perto de 1 significa que a alta e a baixa estão praticamente iguais, ou seja
+    que os dois transdutores estão a medir o mesmo lado do circuito — foi o que se viu nos
+    dados reais de 2026-07-24, com rácios entre 1.11 e 1.13. Sem este aviso o sintoma que
+    chega ao utilizador é apenas a ausência de COP, que aponta para o lado errado."""
+    p1, p2 = pressoes.get("P1"), pressoes.get("P2")
+    if p1 is None or p2 is None:
+        return None
+    p1_abs, p2_abs = p1 + 1.01325, p2 + 1.01325
+    if p1_abs <= 0:
+        return None
+    racio = p2_abs / p1_abs
+    if racio >= RACIO_PRESSOES_MINIMO:
+        return None
+    return (
+        f"rácio de pressões implausível: {racio:.2f} (P1={p1:.2f} bar, P2={p2:.2f} bar). "
+        "Num chiller a funcionar anda entre 3 e 5 — verificar o mapeamento e a escala dos "
+        "transdutores de pressão"
+    )
+
+
 def calc_estado_fluido(temp_C, pressao_bar, fluido):
     if not _HAS_COOLPROP or temp_C is None or pressao_bar is None:
         return "N/A"
@@ -290,26 +344,45 @@ def calcular_metricas_ciclo(temps, pressoes, modo, fluido):
     h1 = h2 = h3 = h4 = None
     entalpias = {}
     cop_real = None
-    aviso = ""
+    avisos = []
+
+    racio = _aviso_racio_pressoes(pressoes)
+    if racio:
+        avisos.append(racio)
+
     try:
-        h1 = calc_entalpia(temps["T1"], pressoes["P1"], fluido)
-        h2 = calc_entalpia(temps["T2"], pressoes["P2"], fluido)
+        # Cada ponto do ciclo é (temperatura, pressão do lado onde esse ponto está).
+        p_h4 = pressoes["P1"] if modo == 'ARREFECIMENTO' else pressoes["P2"]
+        pontos = (
+            ("h1", "T1", pressoes["P1"]),
+            ("h2", "T2", pressoes["P2"]),
+            ("h3", "T3", pressoes["P2"]),
+            ("h4", "T4", p_h4),
+        )
+        for chave, t_key, p_bar in pontos:
+            valor = calc_entalpia(temps[t_key], p_bar, fluido)
+            entalpias[chave] = valor
+            if valor is None:
+                avisos.append(_motivo_entalpia_indisponivel(t_key, temps[t_key], p_bar, fluido))
 
-        if modo == 'ARREFECIMENTO':
-            h3 = calc_entalpia(temps["T3"], pressoes["P2"], fluido)
-            h4 = calc_entalpia(temps["T4"], pressoes["P1"], fluido)
-        elif modo == 'AQUECIMENTO':
-            h3 = calc_entalpia(temps["T3"], pressoes["P2"], fluido)
-            h4 = calc_entalpia(temps["T4"], pressoes["P2"], fluido)
+        h1, h2, h3, h4 = entalpias["h1"], entalpias["h2"], entalpias["h3"], entalpias["h4"]
 
-        entalpias = {"h1": h1, "h2": h2, "h3": h3, "h4": h4}
         cop_termo = calculate_cop_ciclo(h1, h2, h3, h4, modo)
         if cop_termo is not None:
             cop_real = cop_termo * (1.0 - IDADE_COMPRESSOR_FATOR)
             if not (0 < cop_real <= 15):
+                avisos.append(f"COP calculado ({cop_real:.2f}) fora do intervalo credível de 0 a 15")
                 cop_real = None
+        elif not avisos:
+            # Todas as entalpias resolveram mas o balanço do ciclo não fecha.
+            avisos.append(
+                "as entalpias foram calculadas mas o ciclo não fecha: o trabalho de "
+                "compressão ou o efeito útil saíram nulos ou negativos"
+            )
     except Exception as e:
-        aviso = f"Erro cálculo: {e}"
+        avisos.append(f"Erro cálculo: {e}")
+
+    aviso = "; ".join(avisos)
 
     def _estado(t_key, p_bar):
         return calc_estado_fluido(temps.get(t_key), p_bar, fluido)
