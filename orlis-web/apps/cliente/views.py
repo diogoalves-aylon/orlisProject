@@ -537,7 +537,8 @@ class RelatorioView(LoginRequiredMixin, TemplateView):
 
         # LOGO
         logo_abspath = os.path.abspath('src/assets/img/logo_arcoxxi.png')
-        context['logo_path'] = f"file:///{logo_abspath.replace('\\', '/')}" if os.path.exists(logo_abspath) else ""
+        logo_path_str = logo_abspath.replace('\\', '/')
+        context['logo_path'] = f"file:///{logo_path_str}" if os.path.exists(logo_abspath) else ""
         return context
 
     def safe_float(self, val):
