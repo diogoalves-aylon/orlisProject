@@ -162,6 +162,14 @@ function toNumber(v) {
   return isNaN(n) ? null : n;
 }
 
+// A ordenação e os gráficos usam a hora de receção no servidor ("recebido_em") e não o
+// "timestamp", que vem do relógio do chiller e pode estar adiantado. Sem isto uma leitura
+// com o relógio à frente aparecia como a mais recente e ficava cravada no topo. Os
+// documentos anteriores à introdução do campo vêm sem ele e recaem no timestamp.
+function horaLeitura(d) {
+  return d.recebido_em || d.timestamp;
+}
+
 function parseTimestamp(ts) {
   if (!ts) return null;
   let time = new Date(ts).getTime();
@@ -272,7 +280,7 @@ async function fetchSensorData() {
 
     if (sensores.length === 0) return;
 
-    sensores.sort((a, b) => parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp));
+    sensores.sort((a, b) => parseTimestamp(horaLeitura(a)) - parseTimestamp(horaLeitura(b)));
 
     let newDataFound = false;
 

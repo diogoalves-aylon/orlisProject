@@ -309,7 +309,18 @@ class SensorDataAPIView(APIView):
             query = {"ip": ip_address}
 
             # 5. Executar a query filtrada e ordenada (Limit 60 para coincidir com o histórico do JS)
-            values_docs = list(values_collection.find(query).sort("timestamp", -1).limit(60))
+            # Ordena por "recebido_em" (hora de receção no servidor) e não por "timestamp"
+            # (relógio do chiller): um chiller com o relógio adiantado ficaria cravado no
+            # topo e o dashboard mostraria essa leitura como atual, ignorando tudo o que
+            # chegasse depois. O "_id" desempata leituras recebidas no mesmo segundo.
+            # Documentos antigos, gravados antes deste campo existir, não têm
+            # "recebido_em": no Mongo ordenam como null, portanto ficam depois dos
+            # recentes, que é o que se quer, e entre si desempatam pelo "_id".
+            values_docs = list(
+                values_collection.find(query)
+                .sort([("recebido_em", -1), ("_id", -1)])
+                .limit(60)
+            )
 
         except ConnectionFailure as e:
             return Response(
@@ -344,6 +355,12 @@ class SensorDataAPIView(APIView):
                     "fluido": doc.get("fluido", ""),
                     "IP": doc.get("ip", ""),
                     "timestamp": doc.get("timestamp", datetime.now().isoformat()),
+                    # Hora a que o servidor recebeu a leitura. É por esta que a lista vem
+                    # ordenada, por isso tem de ir para o frontend: sem ela, uma leitura
+                    # com o relógio adiantado aparece no topo a mostrar uma hora futura,
+                    # sem nada que denuncie a discrepância. Vem a null nos documentos
+                    # anteriores à introdução do campo.
+                    "recebido_em": doc.get("recebido_em"),
                     "aviso": raw_values.get("aviso", "") # O aviso costuma estar na raiz de values
                 }
 

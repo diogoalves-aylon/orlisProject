@@ -280,6 +280,13 @@ function parseTimestamp(ts) {
   const [hour, minute, second] = timePart.split(":").map(Number);
   return new Date(year, month - 1, day, hour, minute, second).getTime();
 }
+// A ordenação e os gráficos usam a hora de receção no servidor ("recebido_em") e não o
+// "timestamp", que vem do relógio do chiller e pode estar adiantado. Sem isto uma leitura
+// com o relógio à frente aparecia como a mais recente e ficava cravada no topo. Os
+// documentos anteriores à introdução do campo vêm sem ele e recaem no timestamp.
+function horaLeitura(d) {
+  return d.recebido_em || d.timestamp;
+}
 
 let temperatureSensors = [
   "T1 - Entrada Comp.", "T2 - Saída Comp.", "T3 - Entrada Evap.",
@@ -417,13 +424,13 @@ async function fetchSensorData() {
     const sensores = responseData.sensor_data || [];
     if (!sensores.length) return;
 
-    sensores.sort((a,b) => parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp));
+    sensores.sort((a,b) => parseTimestamp(horaLeitura(a)) - parseTimestamp(horaLeitura(b)));
 
     const latestData = sensores[sensores.length - 1];
     updateSidebar(latestData);
 
     sensores.forEach(data => {
-      const ts = parseTimestamp(data.timestamp);
+      const ts = parseTimestamp(horaLeitura(data));
       if (!ts || isNaN(ts)) return;
       if (lastTimestamp && ts <= lastTimestamp) return;
       lastTimestamp = ts;
