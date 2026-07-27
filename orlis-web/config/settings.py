@@ -133,6 +133,14 @@ MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD') or None
 MQTT_METADATA_REFRESH_SECONDS = int(os.environ.get('MQTT_METADATA_REFRESH_SECONDS', '300'))
 MQTT_TIMESTAMP_MAX_SKEW_SECONDS = int(os.environ.get('MQTT_TIMESTAMP_MAX_SKEW_SECONDS', '3600'))
 
+# Sem isto o DRF assume AllowAny e qualquer endpoint novo nasce aberto ao público.
+# O default é fechado; uma view que deva ser pública sobrepõe-no explicitamente.
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators

@@ -9,7 +9,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse, Http404
 from django.views import View
 from django.views.generic import TemplateView
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -24,6 +24,7 @@ from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 
 # MongoDB Imports
 from pymongo import MongoClient, DESCENDING
@@ -260,6 +261,23 @@ class ChillerDetailView(LoginRequiredMixin, TemplateView):
                 
         return context
 class SensorDataAPIView(APIView):
+    # Esta API é consumida tanto pelo dashboard interno como pela área de cliente
+    # (page_2_cliente.html, logs.html), por isso não basta exigir login: o parâmetro
+    # "ip" é escolhido por quem chama, e sem verificação de posse um cliente
+    # autenticado leria a telemetria dos chillers de outro cliente.
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _pode_ver_chiller(user, ip_address):
+        """Um superutilizador vê qualquer chiller; um utilizador de cliente só vê os
+        do cliente a que está associado. Sem associação, não vê nenhum."""
+        if user.is_superuser:
+            return True
+        cliente = getattr(getattr(user, 'clienteprofile', None), 'cliente', None)
+        if cliente is None:
+            return False
+        return Chiller.objects.filter(ipcontrolador=ip_address, idCliente=cliente).exists()
+
     def get(self, request):
         # 1. Obter o IP a partir dos parâmetros da URL (?ip=...)
         ip_address = request.GET.get('ip')
@@ -267,8 +285,16 @@ class SensorDataAPIView(APIView):
         # 2. Validar se o IP foi fornecido
         if not ip_address:
             return Response(
-                {"detail": "Parâmetro 'ip' é obrigatório."}, 
+                {"detail": "Parâmetro 'ip' é obrigatório."},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2b. Validar que este utilizador tem direito a este chiller. Responde 404 e não
+        # 403 de propósito: um 403 confirmaria a existência do IP a quem não lhe pertence.
+        if not self._pode_ver_chiller(request.user, ip_address):
+            return Response(
+                {"detail": "Chiller não encontrado."},
+                status=status.HTTP_404_NOT_FOUND
             )
 
         client = None
@@ -683,7 +709,18 @@ class ClienteDeleteView(LoginRequiredMixin, View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
-class ChillerUpdateView(View):
+class SuperuserRequiredMixin(UserPassesTestMixin):
+    """Restringe uma view aos utilizadores internos. O login já encaminha os
+    superutilizadores para /dashboard/ e os restantes para /cliente/ (ver
+    auth/login/views.py: redirect_by_role), mas as views de escrita abaixo são
+    chamadas por POST a partir de JavaScript e nada impediria um utilizador de
+    cliente autenticado de lhes chamar diretamente."""
+
+    def test_func(self):
+        return self.request.user.is_superuser
+
+
+class ChillerUpdateView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             # Carrega os dados JSON enviados pelo JavaScript
@@ -724,7 +761,7 @@ class ChillerUpdateView(View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
 
-class ChillerDeleteView(View):
+class ChillerDeleteView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             data = json.loads(request.body)
