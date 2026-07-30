@@ -27,10 +27,18 @@ Uso (a partir da raiz do projeto Django, com o listener a correr noutro terminal
 
     # testar a validação de timestamp (fallback para hora de receção)
     python tools/simular_chiller_mqtt.py --skew-horas 3
+
+    # publicar num broker mTLS (ex.: o da Thermia, a partir do servidor 172.20.50.164)
+    python tools/simular_chiller_mqtt.py --host 172.20.50.162 --port 8883 \
+        --topico iot/raspberry-aylon/chiller-01 \
+        --ca-certs /opt/apps/thermia/certs/mqtt/ca.crt \
+        --certfile /opt/apps/thermia/certs/mqtt/thermia-platform.crt \
+        --keyfile /opt/apps/thermia/certs/mqtt/thermia-platform.key
 """
 import argparse
 import json
 import random
+import ssl
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -120,16 +128,34 @@ def main():
     p.add_argument("--standby", action="store_true", help="corrente abaixo do limiar (0.4 A)")
     p.add_argument("--skew-horas", type=float, default=0.0, help="desvio a somar ao timestamp")
     p.add_argument("--jitter", type=float, default=0.3, help="ruído aleatório nas leituras (0 = valores fixos)")
+    p.add_argument("--topico", help="sobrepõe o tópico (o broker da Thermia usa iot/raspberry-aylon/<algo>)")
+    p.add_argument("--ca-certs", help="CA do broker — ativa TLS")
+    p.add_argument("--certfile", help="certificado do cliente (mTLS)")
+    p.add_argument("--keyfile", help="chave do cliente (mTLS)")
+    p.add_argument("--insecure", action="store_true",
+                   help="não verificar o hostname do broker (necessário através de um túnel SSH)")
     args = p.parse_args()
+
+    if bool(args.certfile) != bool(args.keyfile):
+        p.error("--certfile e --keyfile têm de ser usados em conjunto")
+
+    tls = None
+    if args.ca_certs:
+        tls = {"ca_certs": args.ca_certs, "cert_reqs": ssl.CERT_REQUIRED}
+        if args.certfile:
+            tls["certfile"] = args.certfile
+            tls["keyfile"] = args.keyfile
+        if args.insecure:
+            tls["insecure"] = True
 
     kwh = args.kwh
     kvarh = args.kwh + 358.9  # mantém a relação vista nos dados reais
-    topic = f"chillers/{args.ip}/telemetria"
+    topic = args.topico or f"chillers/{args.ip}/telemetria"
     enviadas = 0
 
     while True:
         payload = build_payload(args.ip, kwh, kvarh, args.standby, args.skew_horas, args.perfil, args.jitter)
-        publish.single(topic, json.dumps(payload), hostname=args.host, port=args.port, qos=1)
+        publish.single(topic, json.dumps(payload), hostname=args.host, port=args.port, qos=1, tls=tls)
         enviadas += 1
         m = payload["medidor"]
         print(f"-> {topic}  ts={payload['timestamp']}  perfil={args.perfil}  "
