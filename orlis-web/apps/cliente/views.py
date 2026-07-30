@@ -1,5 +1,6 @@
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from apps.dashboard.permissions import ClienteQueryStringMixin, pode_ver_cliente
 from django.conf import settings
 from apps.dashboard.models import Chiller
 from django.shortcuts import redirect
@@ -374,7 +375,9 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
         context['variaveis'] = sorted(list(variaveis))
         return context
     
-class RelatorioView(LoginRequiredMixin, TemplateView):
+# Toma o cliente do ?cliente_id= da query string, tal como as views do dashboard tomavam:
+# um utilizador do cliente A pedia o relatório do B trocando o id.
+class RelatorioView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'relatorio.html'
 
     def get_context_data(self, **kwargs):
@@ -595,8 +598,14 @@ class RelatorioView(LoginRequiredMixin, TemplateView):
 
 
 
-class ClienteLogoView(View):
+class ClienteLogoView(LoginRequiredMixin, View):
+    """Segunda cópia desta view — a outra está em apps/dashboard/views.py. Nenhuma das duas
+    tinha autenticação: o cliente_id é sequencial, portanto qualquer anónimo podia enumerar
+    os clientes existentes."""
+
     def get(self, request, cliente_id):
+        if not pode_ver_cliente(request.user, cliente_id):
+            raise Http404("Cliente não existe")
         try:
             cliente = Cliente.objects.get(pk=cliente_id)
             if cliente.logo:
