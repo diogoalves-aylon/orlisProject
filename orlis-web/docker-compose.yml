@@ -1,0 +1,97 @@
+# Deployment do ORLIS no servidor 172.20.50.164 (prod-thermia).
+#
+# Difere do docker-compose-local.yml, que é o boilerplate do template Django: esse não
+# define base de dados nenhuma (pressupõe um PostgreSQL já a correr no host — ver o
+# comentário do extra_hosts) e não tem serviço para o listener.
+#
+# O MongoDB NÃO está aqui de propósito: já corre no servidor como container `orlis_mongo`
+# (mongo:7), gerido pela equipa de devops, na rede `thermia_net`. Subir um segundo Mongo
+# criaria duas bases a competir pelos mesmos dados. Ligamo-nos ao existente pelo nome do
+# container — a porta 27017 dele não está publicada no host, portanto só é alcançável de
+# dentro dessa rede.
+#
+# Arranque:
+#   docker compose up -d postgres
+#   docker compose run --rm web python manage.py migrate
+#   docker compose run --rm web python manage.py createsuperuser
+#   docker compose up -d mqtt-listener
+#   docker compose logs -f mqtt-listener
+#
+# ATENÇÃO à interpolação: os ${...} deste ficheiro são resolvidos a partir do `.env` da
+# pasta onde o compose corre (esta), e NÃO a partir do `env_file:` — esse só injeta
+# variáveis dentro do container. São dois mecanismos diferentes. Por isso o `.env` tem de
+# estar aqui, ao lado deste ficheiro, e conter também o MONGO_USER/MONGO_PASSWORD; o
+# `.env` do devops em ../.env não serve para a interpolação.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: orlis_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Sem healthcheck o `web` arranca antes de a base aceitar ligações e o migrate falha
+    # com "connection refused" na primeira tentativa.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - thermia_net
+
+  web:
+    build: .
+    container_name: orlis_web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # A URL é montada aqui a partir das credenciais do devops, para não haver uma segunda
+      # cópia do segredo dentro do código nem no repositório. O settings.py lê MONGO_URL e
+      # mais nada, por isso não foi preciso alterá-lo.
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@orlis_mongo:27017/${MONGO_DB_NAME}?authSource=${MONGO_AUTH_SOURCE}
+    ports:
+      - '5005:5005'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['gunicorn', '--config', 'gunicorn-cfg.py', 'config.wsgi']
+    networks:
+      - thermia_net
+
+  mqtt-listener:
+    build: .
+    container_name: orlis_mqtt_listener
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGO_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@orlis_mongo:27017/${MONGO_DB_NAME}?authSource=${MONGO_AUTH_SOURCE}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Os certificados do broker ficam FORA do clone, montados read-only. Copiá-los para
+    # dentro do repositório arriscava commitá-los — o orlisProject é público.
+    volumes:
+      - /opt/apps/thermia/certs/mqtt:/certs:ro
+    command: ['python', 'manage.py', 'mqtt_listener']
+    # INSTÂNCIA ÚNICA. A memoria_energia do listener vive em processo e não é partilhada
+    # entre réplicas: com duas instâncias, os contadores de energia e o horímetro
+    # divergem. Não acrescentar deploy.replicas nem escalar este serviço.
+    networks:
+      - thermia_net
+
+volumes:
+  pgdata:
+
+networks:
+  # Criada pelo compose do MongoDB, que é de outra equipa. Tem de ser `external`: sem isso
+  # o compose cria uma rede nova com o nome prefixado pelo projeto e o listener não
+  # alcança o `orlis_mongo`.
+  thermia_net:
+    external: true
