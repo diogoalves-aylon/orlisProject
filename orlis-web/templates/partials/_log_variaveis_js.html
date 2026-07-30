@@ -1,0 +1,590 @@
+{{ chiller.ipcontrolador|default:''|json_script:"dadosChiller" }}
+
+<script>
+/**
+ * Logs de variáveis — partilhado pelo dashboard (page_5) e pela área de cliente (logs).
+ *
+ * Notas de desenho, porque cada uma corrige um erro concreto da versão anterior:
+ *
+ *  - A altura do gráfico era 600 nas opções, dentro de um <div> de 400 e de um cartão de
+ *    500. O ApexCharts desenha a altura que lhe dão nas opções, portanto o eixo do tempo e
+ *    a legenda ficavam fora da área visível e a curva saía pelo fundo do cartão. Agora só
+ *    há uma altura, nas opções, e o contentor acompanha-a.
+ *
+ *  - Todas as variáveis partilhavam um eixo y. Escolher uma corrente (~26 A) ao lado de um
+ *    contador de energia (~14840 kWh) achatava a corrente contra o zero. Passou a haver um
+ *    gráfico por unidade — nunca dois eixos y no mesmo gráfico, que faria a leitura da
+ *    escala depender de um alinhamento arbitrário.
+ *
+ *  - As cores vinham por ordem de seleção, portanto desmarcar uma variável repintava as
+ *    restantes. Agora a cor fica presa à variável enquanto estiver escolhida.
+ */
+(function () {
+  'use strict';
+
+  var elGraficos = document.getElementById('logGraficos');
+  if (!elGraficos || typeof ApexCharts === 'undefined') return;
+
+  var IP = JSON.parse(document.getElementById('dadosChiller').textContent);
+  if (!IP) return;
+
+  var MAX_SERIES = 8;
+  var MAX_HISTORICO = 100;
+  var INTERVALO_MS = 5000;
+
+  // Paleta validada para as duas superfícies do tema (#ffffff e o #2b2c40 dos cartões em
+  // modo escuro): banda de luminosidade, chroma, separação para daltonismo e contraste.
+  // A ordem dos tons é o que garante a separação entre séries vizinhas — não reordenar.
+  var PALETA = {
+    light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
+    dark:  ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767']
+  };
+  var CROMA = {
+    light: { superficie: '#ffffff', grelha: '#e1e0d9', eixo: '#c3c2b7', mudo: '#898781' },
+    dark:  { superficie: '#2b2c40', grelha: '#3a3b53', eixo: '#4a4b66', mudo: '#a1a1b5' }
+  };
+
+  // Unidade e grupo de cada variável, deduzidos do nome. O grupo decide em que gráfico a
+  // série entra; a unidade rotula o eixo e o tooltip.
+  var UNIDADES = [
+    [/^T\d+$/i,                 '°C',    'Temperaturas'],
+    [/^P\d+$/i,                 'bar',   'Pressões'],
+    [/corrente/i,               'A',     'Correntes'],
+    // "Tensoes" e não só "Tensao": o MediaTensoes_output vem no plural e caía em "Outras",
+    // sozinho num gráfico à parte, em vez de acompanhar as três tensões compostas.
+    [/tens[aã]o|tens[oõ]es/i,   'V',     'Tensões'],
+    [/energia_consumida_hora/i, 'kWh',   'Consumo por hora'],
+    [/energiaativa/i,           'kWh',   'Energia ativa'],
+    [/energiareativa/i,         'kvarh', 'Energia reativa'],
+    [/potencia|_kw$/i,          'kW',    'Potência'],
+    [/custo/i,                  '€',     'Custo'],
+    [/rendimento|^cop$/i,       '',      'Rendimento (COP)']
+  ];
+
+  // Campos de metadados que vêm na resposta da API e não são leituras. O "IP" tem de estar
+  // aqui: um parseFloat("10.25.4.2") devolve 10.25 e entrava no gráfico como se fosse uma
+  // medida.
+  var META = ['chiller', 'fluido', 'IP', 'timestamp', 'recebido_em', 'ciclo', 'aviso'];
+
+  var historico = [];
+  var ultimaHora = null;
+  var slots = {};            // nome da variável -> índice de cor
+  var graficos = {};         // grupo -> instância do ApexCharts
+  var casasPorGrupo = {};    // grupo -> casas decimais em uso
+  var assinatura = null;
+  var vista = 'grafico';
+
+  // ---------------------------------------------------------------- utilitários
+
+  function escuro() {
+    var raiz = document.documentElement;
+    return raiz.classList.contains('dark-style') ||
+           raiz.getAttribute('data-bs-theme') === 'dark';
+  }
+
+  function paleta() { return PALETA[escuro() ? 'dark' : 'light']; }
+  function croma()  { return CROMA[escuro() ? 'dark' : 'light']; }
+
+  function unidadeDe(nome) {
+    for (var i = 0; i < UNIDADES.length; i++) {
+      if (UNIDADES[i][0].test(nome)) return { unidade: UNIDADES[i][1], grupo: UNIDADES[i][2] };
+    }
+    return { unidade: '', grupo: 'Outras' };
+  }
+
+  function numero(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    if (typeof v !== 'string' || v.trim() === '') return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+
+  // A ordenação e o eixo do tempo usam a hora de receção no servidor e não o "timestamp",
+  // que vem do relógio do chiller. A versão anterior ordenava por "recebido_em" mas
+  // descartava duplicados por "timestamp": bastava o relógio do chiller dar um salto para
+  // a frente uma vez para todas as leituras seguintes serem ignoradas em silêncio.
+  function horaDe(leitura) {
+    var bruto = leitura.recebido_em || leitura.timestamp;
+    if (!bruto) return null;
+    var ms = new Date(bruto).getTime();
+    if (!isNaN(ms)) return ms;
+    var partes = String(bruto).split(' ');
+    if (partes.length !== 2) return null;
+    var d = partes[0].split('-').map(Number);
+    var h = partes[1].split(':').map(Number);
+    ms = new Date(d[0], d[1] - 1, d[2], h[0] || 0, h[1] || 0, h[2] || 0).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
+  // As casas decimais saem da amplitude dos valores e não de um número fixo. Com duas
+  // casas fixas, um contador de energia que varia 0,3 kWh em torno de 14840 mostrava
+  // praticamente o mesmo número em todas as leituras, e uma corrente de standby de
+  // 0,004 A aparecia como "0,00".
+  //
+  // Uma série constante não tem amplitude de onde partir: nesse caso conta-se as casas
+  // que o próprio valor traz, para um 19,5 bar não virar "20".
+  function amplitudeDe(valores) {
+    var nums = valores.filter(function (v) { return typeof v === 'number' && isFinite(v); });
+    if (!nums.length) return null;
+    return { nums: nums, amplitude: Math.max.apply(null, nums) - Math.min.apply(null, nums) };
+  }
+
+  function casasDoProprioValor(nums) {
+    var maximo = 0;
+    for (var i = 0; i < nums.length && i < 20; i++) {
+      var partes = String(nums[i]).split('.');
+      if (partes.length === 2) maximo = Math.max(maximo, Math.min(4, partes[1].length));
+    }
+    return maximo;
+  }
+
+  function limitar(n) { return Math.max(0, Math.min(4, n)); }
+
+  // Eixo y: chega distinguir marcas consecutivas. O ApexCharts reparte o intervalo em
+  // cerca de cinco, portanto é o espaçamento entre marcas que manda — não o valor
+  // absoluto, senão 414,54 V passava a "414,540".
+  function casasEixo(valores) {
+    var a = amplitudeDe(valores);
+    if (!a) return 2;
+    if (a.amplitude === 0) return casasDoProprioValor(a.nums);
+    return limitar(Math.ceil(-Math.log10(a.amplitude / 5)));
+  }
+
+  // Valor lido (tiles e tabela): uma casa a mais do que o eixo, para a leitura individual
+  // não perder a variação que o gráfico mostra.
+  function casasValor(valores) {
+    var a = amplitudeDe(valores);
+    if (!a) return 2;
+    if (a.amplitude === 0) return casasDoProprioValor(a.nums);
+    return limitar(Math.ceil(-Math.log10(a.amplitude)) + 1);
+  }
+
+  function fmt(v, casas) {
+    if (typeof v !== 'number' || !isFinite(v)) return '—';
+    return v.toLocaleString('pt-PT', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+  }
+
+  function selecionadas() {
+    return Array.prototype.slice
+      .call(document.querySelectorAll('.variable-checkbox:checked'))
+      .map(function (c) { return c.value; });
+  }
+
+  // A cor segue a variável, não a posição na lista: desmarcar uma não pode repintar as
+  // outras, senão quem aprendeu "a corrente L1 é azul" passa a ler o gráfico errado.
+  function atualizarSlots(nomes) {
+    Object.keys(slots).forEach(function (nome) {
+      if (nomes.indexOf(nome) === -1) delete slots[nome];
+    });
+    nomes.forEach(function (nome) {
+      if (nome in slots) return;
+      var usados = Object.keys(slots).map(function (k) { return slots[k]; });
+      var i = 0;
+      while (usados.indexOf(i) !== -1) i++;
+      slots[nome] = i;
+    });
+  }
+
+  function corDe(nome) { return paleta()[slots[nome] % MAX_SERIES]; }
+
+  function agrupar(nomes) {
+    var ordem = [], porGrupo = {};
+    nomes.forEach(function (nome) {
+      var u = unidadeDe(nome);
+      if (!porGrupo[u.grupo]) {
+        porGrupo[u.grupo] = { rotulo: u.grupo, unidade: u.unidade, nomes: [] };
+        ordem.push(u.grupo);
+      }
+      porGrupo[u.grupo].nomes.push(nome);
+    });
+    return ordem.map(function (g) { return porGrupo[g]; });
+  }
+
+  // ---------------------------------------------------------------- gráficos
+
+  function opcoes(grupo) {
+    var c = croma();
+    var sufixo = grupo.unidade ? ' ' + grupo.unidade : '';
+    // Lidas do objeto a cada render, e não capturadas por valor: as casas dependem da
+    // amplitude, que muda à medida que chegam leituras, e um updateSeries não reconstrói
+    // as opções.
+    var casas = function (qual) {
+      var c = casasPorGrupo[grupo.rotulo];
+      return c === undefined ? 2 : c[qual];
+    };
+
+    return {
+      chart: {
+        type: 'line',
+        height: 260,
+        fontFamily: 'inherit',
+        background: 'transparent',
+        parentHeightOffset: 0,
+        animations: { enabled: false },
+        toolbar: { show: false },
+        zoom: { enabled: false }
+      },
+      theme: { mode: escuro() ? 'dark' : 'light' },
+      colors: grupo.nomes.map(corDe),
+      series: [],
+      // Reta e não spline: a interpolação suave inventa valores entre leituras e num
+      // contador que só sobe chegava a desenhar descidas que não existem nos dados.
+      stroke: { curve: 'straight', width: 2 },
+      dataLabels: { enabled: false },
+      markers: { size: 0, strokeWidth: 2, strokeColors: c.superficie, hover: { size: 5 } },
+      grid: {
+        borderColor: c.grelha,
+        strokeDashArray: 0,
+        xaxis: { lines: { show: false } },
+        padding: { top: 0, right: 16, bottom: 0, left: 8 }
+      },
+      xaxis: {
+        type: 'datetime',
+        axisBorder: { color: c.eixo },
+        axisTicks: { color: c.eixo },
+        tooltip: { enabled: false },
+        labels: {
+          // Sem isto o ApexCharts rotula em UTC e as horas aparecem deslocadas.
+          datetimeUTC: false,
+          datetimeFormatter: { year: 'yyyy', month: 'MMM', day: 'dd MMM', hour: 'HH:mm', minute: 'HH:mm:ss' },
+          style: { colors: c.mudo, fontSize: '12px' }
+        }
+      },
+      yaxis: {
+        forceNiceScale: true,
+        labels: {
+          style: { colors: c.mudo, fontSize: '12px' },
+          formatter: function (v) { return fmt(v, casas('eixo')); }
+        }
+      },
+      tooltip: {
+        shared: true,
+        intersect: false,
+        x: { format: 'dd MMM yyyy HH:mm:ss' },
+        y: { formatter: function (v) { return typeof v === 'number' && isFinite(v) ? fmt(v, casas('valor')) + sufixo : '—'; } }
+      },
+      // Uma série só é nomeada pelo título do bloco; a legenda só aparece quando há mais
+      // do que uma e a cor deixa de chegar para identificar cada linha.
+      legend: grupo.nomes.length > 1
+        ? {
+            show: true, position: 'top', horizontalAlign: 'left', fontSize: '12px',
+            labels: { colors: c.mudo },
+            markers: { width: 10, height: 10, radius: 10 },
+            itemMargin: { horizontal: 10, vertical: 2 }
+          }
+        : { show: false },
+      noData: { text: 'Sem leituras.', style: { color: c.mudo, fontSize: '13px' } }
+    };
+  }
+
+  function destruirGraficos() {
+    Object.keys(graficos).forEach(function (g) { graficos[g].destroy(); });
+    graficos = {};
+    elGraficos.innerHTML = '';
+  }
+
+  function construir(grupos) {
+    destruirGraficos();
+    grupos.forEach(function (grupo) {
+      var bloco = document.createElement('div');
+      bloco.className = 'grupo-grafico';
+
+      var titulo = document.createElement('div');
+      titulo.className = 'grupo-titulo text-muted text-uppercase fw-semibold mb-1';
+      titulo.textContent = grupo.unidade ? grupo.rotulo + ' (' + grupo.unidade + ')' : grupo.rotulo;
+
+      var alvo = document.createElement('div');
+      bloco.appendChild(titulo);
+      bloco.appendChild(alvo);
+      elGraficos.appendChild(bloco);
+
+      var grafico = new ApexCharts(alvo, opcoes(grupo));
+      grafico.render();
+      graficos[grupo.rotulo] = grafico;
+    });
+  }
+
+  function serieDe(nome) {
+    return {
+      name: nome,
+      data: historico.map(function (p) {
+        return { x: p.t, y: Object.prototype.hasOwnProperty.call(p, nome) ? p[nome] : null };
+      })
+    };
+  }
+
+  function atualizarSeries(grupos) {
+    grupos.forEach(function (grupo) {
+      var valores = [];
+      historico.forEach(function (p) {
+        grupo.nomes.forEach(function (n) { if (typeof p[n] === 'number') valores.push(p[n]); });
+      });
+      casasPorGrupo[grupo.rotulo] = { eixo: casasEixo(valores), valor: casasValor(valores) };
+      var grafico = graficos[grupo.rotulo];
+      if (grafico) grafico.updateSeries(grupo.nomes.map(serieDe));
+    });
+  }
+
+  // ---------------------------------------------------------------- valor mais recente
+
+  function valoresDe(nome) {
+    return historico.map(function (p) { return p[nome]; })
+                    .filter(function (v) { return typeof v === 'number'; });
+  }
+
+  function desenharResumo(nomes) {
+    var alvo = document.getElementById('logResumo');
+    alvo.innerHTML = '';
+    if (!nomes.length || !historico.length) return;
+
+    var ultimo = historico[historico.length - 1];
+    var anterior = historico.length > 1 ? historico[historico.length - 2] : null;
+
+    nomes.forEach(function (nome) {
+      var u = unidadeDe(nome);
+      var casas = casasValor(valoresDe(nome));
+      var v = ultimo[nome];
+
+      var col = document.createElement('div');
+      col.className = 'col-sm-6 col-lg-4';
+
+      var caixa = document.createElement('div');
+      caixa.className = 'border rounded p-2 h-100';
+
+      var topo = document.createElement('div');
+      topo.className = 'd-flex align-items-center gap-2 mb-1';
+      var ponto = document.createElement('span');
+      ponto.className = 'ponto-serie';
+      ponto.style.background = corDe(nome);
+      var rotulo = document.createElement('span');
+      rotulo.className = 'text-muted var-label';
+      rotulo.textContent = nome;
+      topo.appendChild(ponto);
+      topo.appendChild(rotulo);
+
+      var linha = document.createElement('div');
+      linha.className = 'd-flex align-items-baseline gap-2';
+      var valor = document.createElement('span');
+      valor.className = 'tile-valor fw-semibold';
+      valor.textContent = fmt(v, casas) + (u.unidade ? ' ' + u.unidade : '');
+      linha.appendChild(valor);
+
+      if (anterior && typeof v === 'number' && typeof anterior[nome] === 'number') {
+        var delta = v - anterior[nome];
+        if (delta !== 0) {
+          var seta = document.createElement('small');
+          // Neutro de propósito: nesta página subir não é bom nem mau, depende da variável.
+          seta.className = 'text-muted';
+          seta.textContent = (delta > 0 ? '▲ ' : '▼ ') + fmt(Math.abs(delta), casas);
+          linha.appendChild(seta);
+        }
+      }
+
+      caixa.appendChild(topo);
+      caixa.appendChild(linha);
+      col.appendChild(caixa);
+      alvo.appendChild(col);
+    });
+  }
+
+  // ---------------------------------------------------------------- vista de tabela
+
+  function desenharTabela(nomes) {
+    var cabecalho = document.getElementById('logTabelaCabecalho');
+    var corpo = document.getElementById('logTabelaCorpo');
+    cabecalho.innerHTML = '';
+    corpo.innerHTML = '';
+    if (!nomes.length) return;
+
+    var th = document.createElement('th');
+    th.scope = 'col';
+    th.textContent = 'Hora de receção';
+    cabecalho.appendChild(th);
+
+    var casas = {};
+    nomes.forEach(function (nome) {
+      casas[nome] = casasValor(valoresDe(nome));
+      var u = unidadeDe(nome);
+      var c = document.createElement('th');
+      c.scope = 'col';
+      c.className = 'text-end';
+      c.textContent = u.unidade ? nome + ' (' + u.unidade + ')' : nome;
+      cabecalho.appendChild(c);
+    });
+
+    for (var i = historico.length - 1; i >= 0; i--) {
+      var p = historico[i];
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.className = 'text-nowrap';
+      td.textContent = new Date(p.t).toLocaleString('pt-PT');
+      tr.appendChild(td);
+      nomes.forEach(function (nome) {
+        var c = document.createElement('td');
+        c.className = 'text-end';
+        c.textContent = fmt(p[nome], casas[nome]);
+        tr.appendChild(c);
+      });
+      corpo.appendChild(tr);
+    }
+  }
+
+  // ---------------------------------------------------------------- orquestração
+
+  function estado(nomes) {
+    var el = document.getElementById('logEstado');
+    if (!nomes.length) {
+      el.innerHTML = '<i class="bx bx-line-chart fs-1 d-block mb-2 opacity-50"></i>' +
+                     'Escolha uma ou mais variáveis na lista ao lado para ver o histórico.';
+      el.classList.remove('d-none');
+      return false;
+    }
+    if (!historico.length) {
+      el.innerHTML = '<i class="bx bx-time-five fs-1 d-block mb-2 opacity-50"></i>' +
+                     'Ainda não chegaram leituras deste chiller.';
+      el.classList.remove('d-none');
+      return false;
+    }
+    el.classList.add('d-none');
+    return true;
+  }
+
+  function desenhar() {
+    var nomes = selecionadas();
+    atualizarSlots(nomes);
+
+    var haDados = estado(nomes);
+    document.getElementById('logGraficos').classList.toggle('d-none', !haDados || vista !== 'grafico');
+    document.getElementById('logTabelaWrap').classList.toggle('d-none', !haDados || vista !== 'tabela');
+
+    if (!haDados) { destruirGraficos(); assinatura = null; document.getElementById('logResumo').innerHTML = ''; return; }
+
+    var grupos = agrupar(nomes);
+    desenharResumo(nomes);
+    desenharTabela(nomes);
+
+    if (vista !== 'grafico') return;
+
+    // A assinatura inclui o modo claro/escuro porque as cores e a grelha são passadas na
+    // construção do gráfico e não se alteram com um updateSeries.
+    var nova = grupos.map(function (g) {
+      return g.rotulo + '=' + g.nomes.map(function (n) { return n + ':' + slots[n]; }).join(',');
+    }).join('|') + '|' + (escuro() ? 'd' : 'l');
+
+    if (nova !== assinatura) { construir(grupos); assinatura = nova; }
+    atualizarSeries(grupos);
+  }
+
+  // ---------------------------------------------------------------- dados
+
+  function buscar() {
+    return fetch('/dashboard/api/sensor-data/?ip=' + encodeURIComponent(IP) + '&_=' + Date.now())
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (dados) {
+        if (!dados) return;
+        var leituras = dados.sensor_data || [];
+        if (!leituras.length) return;
+
+        leituras.sort(function (a, b) { return horaDe(a) - horaDe(b); });
+
+        var novos = false;
+        leituras.forEach(function (leitura) {
+          var t = horaDe(leitura);
+          if (t === null) return;
+          if (ultimaHora !== null && t <= ultimaHora) return;
+          ultimaHora = t;
+          novos = true;
+
+          var ponto = { t: t };
+          Object.keys(leitura).forEach(function (chave) {
+            if (META.indexOf(chave) !== -1) return;
+            var n = numero(leitura[chave]);
+            if (n !== null) ponto[chave] = n;
+          });
+          historico.push(ponto);
+        });
+
+        if (historico.length > MAX_HISTORICO) historico = historico.slice(-MAX_HISTORICO);
+        if (novos) desenhar();
+      })
+      .catch(function (e) { console.error('Erro ao obter os logs das variáveis:', e); });
+  }
+
+  // ---------------------------------------------------------------- lista de variáveis
+
+  // A nona série não existe: a paleta tem oito tons escolhidos para se distinguirem entre
+  // si e o nono seria uma repetição do primeiro. Desativar as caixas dá o aviso ao
+  // utilizador, mas o limite é imposto aqui — desmarcar à força o que passe do oitavo —
+  // para que nenhum caminho (restauro de estado, script) chegue a pedir uma cor repetida.
+  function aplicarLimite(caixaAlterada) {
+    var caixas = Array.prototype.slice.call(document.querySelectorAll('.variable-checkbox'));
+    var marcadas = caixas.filter(function (c) { return c.checked; });
+
+    if (marcadas.length > MAX_SERIES) {
+      var excedente = marcadas.filter(function (c) { return c !== caixaAlterada; })
+                              .slice(0, marcadas.length - MAX_SERIES);
+      // Se foi uma caixa concreta que passou do limite, é essa que cai; caso contrário
+      // caem as mais antigas da lista.
+      (caixaAlterada && caixaAlterada.checked ? [caixaAlterada] : excedente)
+        .forEach(function (c) { c.checked = false; });
+      marcadas = caixas.filter(function (c) { return c.checked; });
+    }
+
+    var n = marcadas.length;
+    caixas.forEach(function (c) { c.disabled = !c.checked && n >= MAX_SERIES; });
+    document.getElementById('avisoLimite').classList.toggle('d-none', n < MAX_SERIES);
+    document.getElementById('contadorSelecionadas').textContent = n + ' / ' + MAX_SERIES;
+  }
+
+  function ligarPesquisa() {
+    var campo = document.getElementById('variableSearch');
+    if (!campo) return;
+    var vazio = document.getElementById('avisoPesquisaVazia');
+    campo.addEventListener('input', function () {
+      var termo = this.value.trim().toLowerCase();
+      var visiveis = 0;
+      document.querySelectorAll('#variableForm .list-group-item').forEach(function (item) {
+        var corresponde = item.textContent.toLowerCase().indexOf(termo) !== -1;
+        item.classList.toggle('d-none', !corresponde);
+        if (corresponde) visiveis++;
+      });
+      vazio.classList.toggle('d-none', visiveis > 0);
+    });
+  }
+
+  function ligarVista() {
+    document.querySelectorAll('input[name="logVista"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        if (!this.checked) return;
+        vista = this.value;
+        // Os gráficos são reconstruídos ao voltar: o ApexCharts mede a largura no momento
+        // do render e um contentor escondido mede zero.
+        if (vista === 'grafico') assinatura = null;
+        desenhar();
+      });
+    });
+  }
+
+  // O seletor de tema do template troca a classe em <html>; as cores da paleta e da grelha
+  // são escolhidas na construção, por isso é preciso refazer os gráficos.
+  function observarTema() {
+    new MutationObserver(function () { assinatura = null; desenhar(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-bs-theme'] });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.variable-checkbox').forEach(function (caixa) {
+      caixa.addEventListener('change', function () { aplicarLimite(this); desenhar(); });
+    });
+
+    ligarPesquisa();
+    ligarVista();
+    observarTema();
+    aplicarLimite();
+    desenhar();
+
+    buscar();
+    setInterval(buscar, INTERVALO_MS);
+  });
+})();
+</script>
