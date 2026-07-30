@@ -15,11 +15,13 @@ WORKDIR /build/src
 # dependências mudam, não a cada alteração de código.
 COPY src/package.json src/yarn.lock ./
 
-# Yarn 1 fixado de propósito. O src/yarn.lock é "yarn lockfile v1" e o package.json não tem
-# campo packageManager: um `corepack enable` resolveria para o Yarn 4, que não lê este
-# formato de lockfile nem aceita --frozen-lockfile (usa --immutable). Instalar o 1.22
-# explicitamente é o que mantém o build reprodutível a partir deste lockfile.
-RUN npm install -g yarn@1.22.22 && yarn install --frozen-lockfile
+# Usa-se o yarn que a imagem node:20 já traz, que é o 1.22 clássico — e é o que este
+# projeto precisa: o src/yarn.lock é "yarn lockfile v1" e o package.json não tem campo
+# packageManager, portanto um `corepack enable` resolveria para o Yarn 4, que não lê este
+# formato nem aceita --frozen-lockfile (usa --immutable). Instalar o yarn com
+# `npm install -g` também não serve: falha com EEXIST porque /usr/local/bin/yarn já existe.
+# O `yarn --version` fica no log do build para a versão usada ser visível.
+RUN yarn --version && yarn install --frozen-lockfile --network-timeout 600000
 
 COPY src/ ./
 RUN yarn build:prod
