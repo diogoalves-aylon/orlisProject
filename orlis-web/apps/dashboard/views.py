@@ -244,6 +244,11 @@ class SensorDataAPIView(APIView):
                     # sem nada que denuncie a discrepância. Vem a null nos documentos
                     # anteriores à introdução do campo.
                     "recebido_em": doc.get("recebido_em"),
+                    # O ciclo está na raiz do documento e não dentro de "values", por isso o
+                    # achatamento abaixo não o apanha. O frontend usa-o para decidir se T3/T4
+                    # se rotulam como evaporador ou condensador; sem ele ficava sempre em
+                    # evaporador, mesmo num chiller em ciclo de aquecimento.
+                    "ciclo": doc.get("ciclo", ""),
                     "aviso": raw_values.get("aviso", "") # O aviso costuma estar na raiz de values
                 }
 

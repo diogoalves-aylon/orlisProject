@@ -341,11 +341,14 @@ function updateCharts() {
 
   const tempSeries = temperatureSensors.map(sensor => {
     let key = "";
-    if (sensor.includes("T1")) key = "T1_output";
-    else if (sensor.includes("T2")) key = "T2_output";
-    else if (sensor.includes("T3")) key = "T3_output";
-    else if (sensor.includes("T4")) key = "T4_output";
-    else if (sensor.includes("T5")) key = "T5_output";
+    // Os sensores de temperatura chamam-se T1..T5 (sem sufixo _output — esse só existe
+    // nos campos do medidor de energia). Ler "T1_output" devolvia undefined e o gráfico
+    // desenhava tudo a zero.
+    if (sensor.includes("T1")) key = "T1";
+    else if (sensor.includes("T2")) key = "T2";
+    else if (sensor.includes("T3")) key = "T3";
+    else if (sensor.includes("T4")) key = "T4";
+    else if (sensor.includes("T5")) key = "T5";
     else if (sensor.includes("Ambiente")) key = "T_ambiente_output";
 
     return { name: sensor, data: sensorDataHistory.map(p => ({ x: p.timestamp, y: p[key] })) };
@@ -442,11 +445,11 @@ async function fetchSensorData() {
 
       sensorDataHistory.push({
         timestamp: ts,
-        T1_output: toNumber(data.T1_output),
-        T2_output: toNumber(data.T2_output),
-        T3_output: toNumber(data.T3_output),
-        T4_output: toNumber(data.T4_output),
-        T5_output: toNumber(data.T5_output),
+        T1: toNumber(data.T1),
+        T2: toNumber(data.T2),
+        T3: toNumber(data.T3),
+        T4: toNumber(data.T4),
+        T5: toNumber(data.T5),
         T_ambiente_output: t_amb,
         EnergiaAtivaTotal_output: toNumber(data.EnergiaAtivaTotal_output),
         EnergiaAtivaParcial_output: toNumber(data.EnergiaAtivaParcial_output),
