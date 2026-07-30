@@ -9,3 +9,15 @@
 .travis.yml
 venv
 .git
+
+# Dependências do frontend: são instaladas na etapa `frontend` do Dockerfile a partir do
+# yarn.lock. Sem isto, quem construa a imagem numa máquina onde já correu o build envia
+# centenas de MB de contexto para o daemon sem necessidade.
+src/node_modules
+
+# Gerados: o collectstatic corre no arranque e escreve no volume, e os .env nunca entram
+# na imagem — as variáveis vêm do compose.
+staticfiles
+.env
+.env.*
+!.env.example

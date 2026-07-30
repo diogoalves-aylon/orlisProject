@@ -14,8 +14,13 @@
 #   docker compose up -d postgres
 #   docker compose run --rm web python manage.py migrate
 #   docker compose run --rm web python manage.py createsuperuser
-#   docker compose up -d mqtt-listener
+#   docker compose run --rm web python manage.py collectstatic --noinput
+#   docker compose up -d web mqtt-listener
 #   docker compose logs -f mqtt-listener
+#
+# Depois de qualquer `up --build`, voltar a correr o collectstatic: os assets vivem num
+# volume que não é reconstruído com a imagem, portanto ficheiros novos do tema não chegam
+# lá sozinhos.
 #
 # ATENÇÃO à interpolação: os ${...} deste ficheiro são resolvidos a partir do `.env` da
 # pasta onde o compose corre (esta), e NÃO a partir do `env_file:` — esse só injeta
