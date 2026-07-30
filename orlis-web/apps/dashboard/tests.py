@@ -11,7 +11,9 @@ e sobrevivem entre testes. Todos os casos abaixo limpam-nos no setUp.
 """
 import json
 from datetime import datetime
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.messages.storage.cookie import CookieStorage
 from django.core.exceptions import PermissionDenied
@@ -23,12 +25,14 @@ from apps.cliente.models import ClienteProfile
 # para as duas poderem ser testadas no mesmo módulo.
 from apps.cliente.views import (
     ClienteLogoView as ClienteLogoAreaView, RelatorioView as ClienteRelatorioAreaView,
+    VariableLogView as ClienteVariableLogAreaView,
 )
 from apps.dashboard.models import Chiller, Cliente, Intervencao
 from apps.dashboard.services import telemetry
 from apps.dashboard.views import (
     ClienteChillerDetailView, ClienteDeleteView, ClienteLogoView, ClienteUpdateView,
     DashboardView, LivroObraView, RegistarIntervencaoView, RelatorioView, TableClientsView,
+    VariableLogView as DashboardVariableLogView,
 )
 
 
@@ -521,3 +525,109 @@ class AutorizacaoAreaClienteTests(TestCase):
         request.user = self.user_a
         with self.assertRaises(Http404):
             ClienteLogoAreaView.as_view()(request, cliente_id=self.cliente_b.idCliente)
+
+
+# --- Página de logs de variáveis -------------------------------------------------
+
+class LogVariaveisTemplateTests(TestCase):
+    """A page_5 do dashboard e a logs.html da área de cliente eram dois ficheiros byte a
+    byte iguais, com o gráfico e o JavaScript duplicados. Corrigir um não corrigia o outro
+    e foi assim que as duas ficaram com o mesmo gráfico partido.
+
+    Agora as duas incluem templates/partials/_log_variaveis*.html. Estes testes prendem
+    essa partilha e os defeitos concretos que o gráfico tinha, para não voltarem se alguém
+    recolar a versão antiga.
+
+    Não é preciso MongoDB: sem ele a view apanha a exceção e devolve a lista de variáveis
+    vazia, e o que se está a verificar é o template.
+    """
+
+    # Elementos que o JavaScript procura pelo id. Se um deles desaparecer do markup, o
+    # script deixa de funcionar em silêncio.
+    ANCORAS = (
+        'id="logGraficos"', 'id="logResumo"', 'id="logEstado"',
+        'id="logTabelaWrap"', 'id="dadosChiller"', 'id="variableForm"',
+    )
+
+    # Cada um destes esteve na versão anterior e é um defeito conhecido.
+    REGRESSOES = {
+        "cdn.jsdelivr.net": "o ApexCharts tem de vir do tema, não de um CDN externo — o "
+                            "servidor está numa rede interna",
+        "height: 600": "a altura das opções tem de caber no cartão, senão o eixo do tempo "
+                       "fica fora da área visível",
+        "curve: 'smooth'": "a spline inventa valores entre leituras",
+        "strokeDashArray: 4": "a grelha tracejada lê-se como limiar",
+    }
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cliente = Cliente.objects.create(nome="Ibis Teste", email="t@exemplo.pt")
+        self.chiller = Chiller.objects.create(
+            nome="Chiller de teste", localizacao="L", ipcontrolador="10.25.4.2",
+            status="ligado", gas="R407C", ciclo="verao", idCliente=self.cliente,
+        )
+        self.admin = User.objects.create_superuser("admin_logs", password="x")
+        self.user_cliente = User.objects.create_user("user_logs", password="x")
+        ClienteProfile.objects.create(user=self.user_cliente, cliente=self.cliente)
+
+    def _render(self, view, user, **params):
+        request = self.factory.get("/", params)
+        request.user = user
+        # O LocaleMiddleware é que costuma pôr isto; com o RequestFactory não corre e o
+        # context processor da língua rebentava.
+        request.LANGUAGE_CODE = "pt-pt"
+        resposta = view(request)
+        resposta.render()
+        return resposta.content.decode()
+
+    def _html_dashboard(self):
+        return self._render(
+            DashboardVariableLogView.as_view(template_name="page_5.html"), self.admin,
+            cliente_id=self.cliente.idCliente, chiller_id=self.chiller.idChiller,
+        )
+
+    def _html_area_cliente(self):
+        return self._render(
+            ClienteVariableLogAreaView.as_view(), self.user_cliente,
+            chiller_id=self.chiller.idChiller,
+        )
+
+    def test_as_duas_paginas_trazem_as_mesmas_ancoras(self):
+        for nome, html in (("page_5", self._html_dashboard()),
+                           ("logs.html", self._html_area_cliente())):
+            for ancora in self.ANCORAS:
+                with self.subTest(pagina=nome, ancora=ancora):
+                    self.assertIn(ancora, html)
+
+    def test_nenhuma_das_paginas_regride_para_a_versao_antiga(self):
+        for nome, html in (("page_5", self._html_dashboard()),
+                           ("logs.html", self._html_area_cliente())):
+            for marca, porque in self.REGRESSOES.items():
+                with self.subTest(pagina=nome, marca=marca):
+                    self.assertNotIn(marca, html, porque)
+
+    def test_o_ip_do_chiller_vai_em_json_script_e_nao_interpolado_no_javascript(self):
+        # Interpolar um valor da base de dados dentro de uma string JS é como o IP era
+        # passado antes; o json_script escapa-o.
+        html = self._html_dashboard()
+        self.assertIn('<script id="dadosChiller" type="application/json">"10.25.4.2"</script>', html)
+
+    def test_sem_chiller_a_pagina_nao_arranca_o_javascript(self):
+        html = self._render(
+            DashboardVariableLogView.as_view(template_name="page_5.html"), self.admin,
+            cliente_id=self.cliente.idCliente,
+        )
+        self.assertIn("Selecione um chiller", html)
+        # Sem chiller não há o div dos gráficos, e o script sai logo à cabeça.
+        self.assertNotIn('id="logGraficos"', html)
+
+    def test_os_dois_templates_incluem_o_partial_em_vez_de_o_copiarem(self):
+        raiz = Path(settings.BASE_DIR)
+        for caminho in ("apps/dashboard/templates/page_5.html",
+                        "apps/cliente/templates/logs.html"):
+            with self.subTest(template=caminho):
+                fonte = (raiz / caminho).read_text()
+                self.assertIn('{% include "partials/_log_variaveis.html" %}', fonte)
+                self.assertIn('{% include "partials/_log_variaveis_js.html" %}', fonte)
+                # Se voltar a ter o corpo lá dentro, volta a divergir da outra.
+                self.assertNotIn("<script>", fonte)

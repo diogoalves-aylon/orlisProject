@@ -1,0 +1,176 @@
+{% comment %}
+Corpo da página de logs de variáveis, partilhado pelo dashboard (page_5.html) e pela área
+de cliente (logs.html). As duas páginas eram ficheiros byte a byte iguais; qualquer correção
+feita numa não chegava à outra. As views dão o mesmo contexto: cliente, chiller e variaveis.
+
+O JavaScript vive em partials/_log_variaveis_js.html, incluído no bloco page_js.
+{% endcomment %}
+
+<style>
+  .custom-scroll::-webkit-scrollbar { width: 6px; }
+  .custom-scroll::-webkit-scrollbar-thumb { background: #cfcfcf; border-radius: 4px; }
+  .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  /* Nomes como "EnergiaReativaParcial_output" não cabem numa linha na coluna da lista.
+     Sem a quebra, o texto saía do cartão e era cortado a meio da palavra. */
+  .var-label {
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  .lista-variaveis { max-height: 30rem; overflow-y: auto; }
+
+  /* Um gráfico por unidade, empilhados. Nenhum tem altura fixa no CSS: a altura é dada
+     ao ApexCharts nas opções e o contentor acompanha-a, para a faixa do eixo x caber
+     dentro do cartão. Era isto que faltava — o eixo do tempo ficava fora da área visível. */
+  .grupo-grafico + .grupo-grafico { margin-top: 1.75rem; }
+  .grupo-titulo { font-size: 0.8125rem; letter-spacing: .02em; }
+
+  .tabela-log { font-variant-numeric: tabular-nums; }
+  .tabela-log-wrap { max-height: 30rem; overflow: auto; }
+  .tabela-log th { position: sticky; top: 0; z-index: 2; }
+
+  .ponto-serie {
+    width: .625rem; height: .625rem; border-radius: 50%;
+    display: inline-block; flex: 0 0 auto;
+  }
+
+  /* Cada valor mais recente aparece rotulado com o nome e a cor da série. É a
+     "legenda direta" que torna a leitura possível sem depender só da cor. */
+  .tile-valor { font-size: 1.125rem; line-height: 1.2; }
+</style>
+
+<div class="container-fluid">
+
+  <div class="row mb-4 align-items-center">
+    <div class="col-md-8 d-flex align-items-center">
+      {% if cliente %}
+      <div class="me-3">
+        <img src="{% url 'cliente-logo' cliente.idCliente %}" alt="Logótipo do cliente"
+             class="img-fluid" style="max-height: 72px;" onerror="this.style.display='none';">
+      </div>
+      {% endif %}
+      <div>
+        <h4 class="fw-bold mb-0"><span class="text-muted fw-light">Gráficos /</span> Logs dos valores</h4>
+        <div class="d-flex align-items-center text-muted">
+          <i class="bx bx-building-house me-1"></i> {{ cliente.nome }}
+          {% if chiller %}
+            <i class="bx bx-chevron-right mx-2"></i>
+            <i class="bx bx-server me-1"></i> {{ chiller.nome }}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4 text-md-end mt-3 mt-md-0">
+      <small class="text-muted">Powered by</small><br>
+      <img src="{% static 'img/logo_arcoxxi.png' %}" alt="Logótipo ArcoXXI" class="img-fluid" style="max-height: 30px;">
+    </div>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card shadow-sm border-0">
+        <div class="card-body p-4 d-flex align-items-center">
+          <div class="avatar avatar-lg me-3 bg-label-primary rounded p-3 d-flex align-items-center justify-content-center">
+            <i class='bx bx-server fs-1'></i>
+          </div>
+          <div>
+            <h4 class="mb-1 text-primary fw-bold">
+              {% if chiller %}{{ chiller.nome }}{% else %}Selecione um chiller{% endif %}
+            </h4>
+            <div class="text-muted">
+              {% if chiller %}ID: #{{ chiller.idChiller }}{% else %}Equipamento não identificado{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-xl-8 mb-4">
+      <div class="card h-100">
+        <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <h5 class="mb-0">Log das variáveis selecionadas</h5>
+          {% if chiller and chiller.ipcontrolador %}
+          <div class="btn-group btn-group-sm" role="group" aria-label="Modo de visualização">
+            <input type="radio" class="btn-check" name="logVista" id="vistaGrafico" value="grafico" checked>
+            <label class="btn btn-outline-primary" for="vistaGrafico"><i class="bx bx-line-chart me-1"></i>Gráfico</label>
+            <input type="radio" class="btn-check" name="logVista" id="vistaTabela" value="tabela">
+            <label class="btn btn-outline-primary" for="vistaTabela"><i class="bx bx-table me-1"></i>Tabela</label>
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="card-body">
+          {% if chiller and chiller.ipcontrolador %}
+            <!-- Valor mais recente de cada variável, rotulado com nome e cor da série. -->
+            <div id="logResumo" class="row g-3 mb-4"></div>
+
+            <div id="logEstado" class="text-center text-muted py-5">
+              <i class="bx bx-line-chart fs-1 d-block mb-2 opacity-50"></i>
+              Escolha uma ou mais variáveis na lista ao lado para ver o histórico.
+            </div>
+
+            <!-- Um gráfico por unidade: juntar amperes e kWh no mesmo eixo achatava a
+                 corrente contra o zero e a leitura da escala passava a ser arbitrária. -->
+            <div id="logGraficos"></div>
+
+            <div id="logTabelaWrap" class="tabela-log-wrap custom-scroll d-none">
+              <table class="table table-sm table-hover tabela-log mb-0">
+                <thead class="table-light"><tr id="logTabelaCabecalho"></tr></thead>
+                <tbody id="logTabelaCorpo"></tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="d-flex align-items-center justify-content-center py-5">
+              <p class="text-muted mb-0">Selecione um chiller para visualizar os logs das variáveis</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-xl-4 mb-4">
+      <div class="card h-100">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <h5 class="mb-0">Lista de variáveis</h5>
+          <span class="badge bg-label-secondary" id="contadorSelecionadas">0 / 8</span>
+        </div>
+        <div class="card-body">
+          {% if chiller and chiller.ipcontrolador %}
+            <input type="text" class="form-control mb-3" id="variableSearch"
+                   placeholder="Pesquisar variável..." autocomplete="off">
+            <form id="variableForm">
+              <ul class="list-group list-group-flush lista-variaveis custom-scroll">
+                {% for var in variaveis %}
+                  <li class="list-group-item px-0">
+                    <div class="form-check mb-0">
+                      <input class="form-check-input variable-checkbox" type="checkbox"
+                             value="{{ var }}" id="check_{{ forloop.counter }}">
+                      <label class="form-check-label var-label" for="check_{{ forloop.counter }}">{{ var }}</label>
+                    </div>
+                  </li>
+                {% empty %}
+                  <li class="list-group-item text-muted px-0">Nenhuma variável disponível</li>
+                {% endfor %}
+              </ul>
+              <p class="text-muted small mb-0 mt-3 d-none" id="avisoLimite">
+                Limite de 8 variáveis em simultâneo. Desmarque uma para escolher outra.
+              </p>
+              <p class="text-muted small mb-0 mt-3 d-none" id="avisoPesquisaVazia">
+                Nenhuma variável corresponde à pesquisa.
+              </p>
+            </form>
+          {% else %}
+            <div class="d-flex align-items-center justify-content-center py-5">
+              <p class="text-muted mb-0">Selecione um chiller para ver as variáveis disponíveis</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
