@@ -117,7 +117,9 @@ DATABASES = {
         'USER': os.environ.get('DB_USER', ''),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', ''),
-        'PORT': '5432',
+        # Estava '5432' fixo, apesar de o .env.example definir DB_PORT — a variável era
+        # silenciosamente ignorada, e um Postgres noutra porta falhava sem dizer porquê.
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
