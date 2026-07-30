@@ -152,6 +152,17 @@ class DashboardView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
 
         return redirect(f"{reverse('dashboard')}?cliente_id={cliente_id}")
 
+# O documento tem as entalpias em "entalpias" e a fase do fluido em "estados", e as duas
+# secções usam as MESMAS chaves: h1, h2, h3, h4. Uma diz o número (419.7 kJ/kg), a outra a
+# fase ("Vapor Superaquecido"). Achatadas para a raiz sem distinção, a secção que viesse
+# depois no documento ganhava — na prática a "estados" — e o h1 chegava ao frontend como
+# uma string. As entalpias ficavam inalcançáveis: não dava para as pôr num gráfico nem
+# para as ler pela API, apesar de serem o resultado de todo o cálculo termodinâmico.
+#
+# O prefixo é o que o SensorDataSerializer já documentava (h1 float, estado_h1 string).
+PREFIXO_SECCAO = {"estados": "estado_"}
+
+
 class SensorDataAPIView(APIView):
     # Esta API é consumida tanto pelo dashboard interno como pela área de cliente
     # (page_2_cliente.html, logs.html), por isso não basta exigir login: o parâmetro
@@ -261,21 +272,17 @@ class SensorDataAPIView(APIView):
                     "aviso": raw_values.get("aviso", "") # O aviso costuma estar na raiz de values
                 }
 
-                # --- LÓGICA DINÂMICA (A Mágica acontece aqui) ---
-                # Varre todos os itens dentro de 'values'. 
-                # Se for dict (ex: medidor), extrai os filhos. Se for valor (ex: rendimento), usa direto.
-                
+                # Achata as secções de "values" (medidor, temps, pressoes, entalpias,
+                # estados) para a raiz do objeto, para o frontend não ter de saber em que
+                # secção vive cada variável.
                 for key, val in raw_values.items():
                     if isinstance(val, dict):
-                        # É uma categoria (medidor, temps, pressoes, entalpias)
-                        # Copia tudo o que está dentro para a raiz do objeto 'entry'
                         for sub_key, sub_val in val.items():
-                            entry[sub_key] = sub_val 
-                    elif key not in entry: 
-                        # É um valor solto na raiz (ex: rendimento, COP) e ainda não existe em entry
+                            entry[PREFIXO_SECCAO.get(key, "") + sub_key] = sub_val
+                    elif key not in entry:
+                        # Valor solto na raiz: rendimento, aviso.
                         entry[key] = val
-                
-                # Nota: Com isto, entry['custo'] passará a existir automaticamente
+
                 processed_data.append(entry)
 
         # 7. Retorno
@@ -444,16 +451,16 @@ class VariableLogView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView)
 
         variaveis = []
 
-        # --- LISTA NEGRA (EXCLUSÕES) ---
-        # Atualizado para incluir versões com underscore (_) conforme sua imagem
-        EXCLUDED_VARS = {
-            'custo', 
-            'estado_chiller', 'estado chiller',  # Cobre ambas as possibilidades
-            'estado_h1', 'estado h1',
-            'estado_h2', 'estado h2',
-            'h1', 'h2', 'h3', 'h4',
-            'aviso'
-        }
+        # Só entram na lista variáveis que se possam desenhar num gráfico, e é o tipo do
+        # valor que decide, não o nome: o "estado_chiller", o "aviso" e a fase do fluido
+        # são texto e ficam de fora sozinhos. A lista negra abaixo é só para o que é
+        # número mas não é uma leitura.
+        #
+        # As entalpias h1..h4 estavam aqui e não deviam: foram excluídas porque chegavam
+        # como texto, e chegavam como texto por causa da colisão de chaves entre as
+        # secções "entalpias" e "estados" (ver PREFIXO_SECCAO). Resolvida a colisão, são
+        # números e são o resultado de todo o cálculo termodinâmico.
+        EXCLUDED_VARS = {'custo'}
 
         if chiller:
             try:
@@ -474,19 +481,26 @@ class VariableLogView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView)
                     values = last_doc.get("values", {}) or {}
                     found_keys = set()
 
+                    # O bool é subclasse do int em Python, por isso tem de ser excluído à
+                    # mão, senão uma flag entrava na lista como se fosse uma medida.
+                    def e_leitura(nome, valor):
+                        return (
+                            nome not in EXCLUDED_VARS
+                            and isinstance(valor, (int, float))
+                            and not isinstance(valor, bool)
+                        )
+
                     for key, content in values.items():
-                        # CASO A: Grupo (dicionário aninhado)
                         if isinstance(content, dict):
-                            for sub_key in content.keys():
-                                if sub_key not in EXCLUDED_VARS:
+                            # Secção: medidor, temps, pressoes, entalpias, estados.
+                            for sub_key, sub_val in content.items():
+                                if e_leitura(sub_key, sub_val):
                                     found_keys.add(sub_key)
-                            
-                        # CASO B: Valor direto
-                        elif isinstance(content, (int, float, str)):
-                            if key not in EXCLUDED_VARS:
-                                found_keys.add(key)
-                    
-                    variaveis = sorted(list(found_keys))
+                        elif e_leitura(key, content):
+                            # Valor solto na raiz de "values": o rendimento.
+                            found_keys.add(key)
+
+                    variaveis = sorted(found_keys)
                 else:
                     variaveis = []
 
