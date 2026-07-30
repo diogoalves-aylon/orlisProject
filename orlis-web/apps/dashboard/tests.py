@@ -12,6 +12,7 @@ e sobrevivem entre testes. Todos os casos abaixo limpam-nos no setUp.
 import json
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -31,8 +32,8 @@ from apps.dashboard.models import Chiller, Cliente, Intervencao
 from apps.dashboard.services import telemetry
 from apps.dashboard.views import (
     ClienteChillerDetailView, ClienteDeleteView, ClienteLogoView, ClienteUpdateView,
-    DashboardView, LivroObraView, RegistarIntervencaoView, RelatorioView, TableClientsView,
-    VariableLogView as DashboardVariableLogView,
+    DashboardView, LivroObraView, RegistarIntervencaoView, RelatorioView,
+    SensorDataAPIView, TableClientsView, VariableLogView as DashboardVariableLogView,
 )
 
 
@@ -631,3 +632,177 @@ class LogVariaveisTemplateTests(TestCase):
                 self.assertIn('{% include "partials/_log_variaveis_js.html" %}', fonte)
                 # Se voltar a ter o corpo lá dentro, volta a divergir da outra.
                 self.assertNotIn("<script>", fonte)
+
+
+# --- Achatamento da resposta da API ----------------------------------------------
+
+class MongoFalso:
+    """Faz de MongoClient para as views que leem a coleção "values".
+
+    Suporta só o que elas usam: client[db]["values"], find().sort().limit() e find_one().
+    """
+
+    def __init__(self, documentos):
+        self.documentos = documentos
+
+    # MongoClient(...) -> client[db] -> db["values"]
+    def __call__(self, *a, **kw):
+        return self
+
+    def __getitem__(self, _nome):
+        return self
+
+    def find(self, _query=None):
+        return self
+
+    def sort(self, *a, **kw):
+        return self
+
+    def limit(self, *a, **kw):
+        return list(self.documentos)
+
+    def find_one(self, _query=None, sort=None):
+        return self.documentos[0] if self.documentos else None
+
+    def close(self):
+        pass
+
+
+# Documento com a forma real: as entalpias e os estados usam as mesmas chaves h1..h4.
+DOCUMENTO = {
+    "ip": "10.25.4.2",
+    "chiller": "Chiller de teste",
+    "timestamp": "2026-07-30 10:38:27",
+    "recebido_em": "2026-07-30 10:38:27",
+    "ciclo": "verao",
+    "values": {
+        "temps": {"T1": 12.06, "T2": 77.86},
+        "pressoes": {"P1": 4.0, "P2": 19.5},
+        "medidor": {
+            "Corrente_L1_output": 26.08,
+            "EnergiaAtivaParcial_output": 14845.96,
+            "estado_chiller": "ativo",
+            "custo_hora": 0.2975,
+        },
+        "entalpias": {"h1": 419.72, "h2": 460.53, "h3": 260.18, "h4": 416.21},
+        "estados": {
+            "h1": "Vapor Superaquecido", "h2": "Vapor Superaquecido",
+            "h3": "Líquido Sub-resfriado", "h4": "Vapor Superaquecido",
+        },
+        "rendimento": 3.5552,
+        "aviso": "",
+    },
+}
+
+
+class AchatamentoDaApiTests(TestCase):
+    """As secções "entalpias" e "estados" do documento usam as MESMAS chaves (h1..h4):
+    uma tem o número, a outra a fase do fluido.
+
+    Achatadas para a raiz sem distinção, a que vinha depois no documento ganhava e o h1
+    chegava ao frontend como a string "Vapor Superaquecido". As entalpias — o resultado de
+    todo o cálculo termodinâmico — ficavam inalcançáveis pela API e por isso escondidas da
+    lista de variáveis.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cliente = Cliente.objects.create(nome="Ibis API", email="api@exemplo.pt")
+        self.chiller = Chiller.objects.create(
+            nome="Chiller de teste", localizacao="L", ipcontrolador="10.25.4.2",
+            status="ligado", gas="R407C", ciclo="verao", idCliente=self.cliente,
+        )
+        self.admin = User.objects.create_superuser("admin_api", password="x")
+        self.mongo = MongoFalso([DOCUMENTO])
+
+    def _leitura(self):
+        request = self.factory.get("/", {"ip": "10.25.4.2"})
+        request.user = self.admin
+        with mock.patch("apps.dashboard.views.MongoClient", self.mongo):
+            resposta = SensorDataAPIView.as_view()(request)
+        resposta.render()
+        return json.loads(resposta.content.decode())["sensor_data"][0]
+
+    def test_entalpias_chegam_como_numero(self):
+        leitura = self._leitura()
+        for chave, esperado in (("h1", 419.72), ("h2", 460.53), ("h3", 260.18), ("h4", 416.21)):
+            with self.subTest(chave=chave):
+                self.assertEqual(leitura[chave], esperado)
+
+    def test_fase_do_fluido_vai_com_prefixo_e_nao_sobrepoe_a_entalpia(self):
+        leitura = self._leitura()
+        self.assertEqual(leitura["estado_h1"], "Vapor Superaquecido")
+        self.assertEqual(leitura["estado_h3"], "Líquido Sub-resfriado")
+        self.assertNotIsInstance(leitura["h1"], str)
+
+    def test_o_resto_do_achatamento_nao_muda(self):
+        leitura = self._leitura()
+        self.assertEqual(leitura["T1"], 12.06)
+        self.assertEqual(leitura["P2"], 19.5)
+        self.assertEqual(leitura["Corrente_L1_output"], 26.08)
+        self.assertEqual(leitura["rendimento"], 3.5552)
+        self.assertEqual(leitura["ciclo"], "verao")
+        self.assertEqual(leitura["IP"], "10.25.4.2")
+
+
+class ListaDeVariaveisTests(TestCase):
+    """A lista de variáveis escolhíveis é filtrada pelo TIPO do valor e não por uma lista
+    de nomes: o que não é número não se desenha num gráfico.
+
+    As duas views — dashboard e área de cliente — têm de devolver a mesma lista, porque
+    partilham o template desde a correção do gráfico. Uma diferença aqui só se notaria
+    como uma variável que aparece a um utilizador e não ao outro.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cliente = Cliente.objects.create(nome="Ibis Lista", email="l@exemplo.pt")
+        self.chiller = Chiller.objects.create(
+            nome="Chiller de teste", localizacao="L", ipcontrolador="10.25.4.2",
+            status="ligado", gas="R407C", ciclo="verao", idCliente=self.cliente,
+        )
+        self.admin = User.objects.create_superuser("admin_lista", password="x")
+        self.user_cliente = User.objects.create_user("user_lista", password="x")
+        ClienteProfile.objects.create(user=self.user_cliente, cliente=self.cliente)
+        self.mongo = MongoFalso([DOCUMENTO])
+
+    def _variaveis(self, modulo, vista, user, **params):
+        request = self.factory.get("/", params)
+        request.user = user
+        request.LANGUAGE_CODE = "pt-pt"
+        instancia = vista()
+        instancia.setup(request)
+        with mock.patch(f"{modulo}.MongoClient", self.mongo):
+            return instancia.get_context_data()["variaveis"]
+
+    def _do_dashboard(self):
+        return self._variaveis(
+            "apps.dashboard.views", DashboardVariableLogView, self.admin,
+            cliente_id=self.cliente.idCliente, chiller_id=self.chiller.idChiller,
+        )
+
+    def _da_area_cliente(self):
+        return self._variaveis(
+            "apps.cliente.views", ClienteVariableLogAreaView, self.user_cliente,
+            chiller_id=self.chiller.idChiller,
+        )
+
+    def test_as_entalpias_aparecem(self):
+        # Estavam numa lista negra por chegarem como texto — o sintoma da colisão, não a
+        # causa. Resolvida a colisão, são leituras como as outras.
+        for lista in (self._do_dashboard(), self._da_area_cliente()):
+            for chave in ("h1", "h2", "h3", "h4"):
+                self.assertIn(chave, lista)
+
+    def test_o_que_e_texto_fica_de_fora(self):
+        for lista in (self._do_dashboard(), self._da_area_cliente()):
+            for chave in ("estado_chiller", "aviso", "estado_h1"):
+                self.assertNotIn(chave, lista)
+
+    def test_as_duas_views_devolvem_a_mesma_lista(self):
+        self.assertEqual(self._do_dashboard(), self._da_area_cliente())
+
+    def test_a_lista_vem_ordenada_e_sem_repetidos(self):
+        lista = self._do_dashboard()
+        self.assertEqual(lista, sorted(lista))
+        self.assertEqual(len(lista), len(set(lista)))

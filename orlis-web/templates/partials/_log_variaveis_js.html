@@ -49,6 +49,9 @@
   var UNIDADES = [
     [/^T\d+$/i,                 '°C',    'Temperaturas'],
     [/^P\d+$/i,                 'bar',   'Pressões'],
+    // h1..h4 são as entalpias dos quatro pontos do ciclo. A fase do fluido nos mesmos
+    // pontos chega como estado_h1..estado_h4, é texto e nunca entra num gráfico.
+    [/^h[1-4]$/i,               'kJ/kg', 'Entalpias'],
     [/corrente/i,               'A',     'Correntes'],
     // "Tensoes" e não só "Tensao": o MediaTensoes_output vem no plural e caía em "Outras",
     // sozinho num gráfico à parte, em vez de acompanhar as três tensões compostas.
