@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.template.loader import render_to_string
+from django.core.exceptions import PermissionDenied
 from django.db.models import ProtectedError
 from django.urls import reverse
 from web_project import TemplateLayout
@@ -37,9 +38,10 @@ from weasyprint import HTML
 # Project Imports
 from web_project import TemplateLayout
 from .models import Cliente, Chiller, ClienteChillers, Intervencao
+from .permissions import ClienteQueryStringMixin, SuperuserRequiredMixin, pode_ver_cliente
 
 
-class DashboardView(LoginRequiredMixin, TemplateView):
+class DashboardView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'dashboard.html'
 
     def get_context_data(self, **kwargs):
@@ -69,6 +71,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
     def post(self, request, *args, **kwargs):
+        # Este POST apaga, edita e cria chillers — as mesmas operações que o
+        # ChillerUpdateView e o ChillerDeleteView já restringem a superutilizadores. Sem
+        # esta verificação, qualquer utilizador autenticado apagava um chiller de outro
+        # cliente enviando o delete_id, e o formulário do dashboard era o único obstáculo.
+        if not request.user.is_superuser:
+            raise PermissionDenied("Apenas utilizadores internos podem alterar chillers.")
+
         cliente_id = request.POST.get('cliente_id_hidden') or request.GET.get('cliente_id')
 
         # --- AÇÃO: APAGAR ---
@@ -287,8 +296,15 @@ class SensorDataAPIView(APIView):
 # Configuração de Logs
 logger = logging.getLogger(__name__)
 
-class ClienteLogoView(View):
+class ClienteLogoView(LoginRequiredMixin, View):
+    """Serve o logótipo de um cliente. Não tinha autenticação nenhuma: o cliente_id é um
+    inteiro sequencial, portanto qualquer anónimo podia enumerá-los e descobrir quantos
+    clientes existem e quem são. Responde 404 e não 403 a quem não tem direito, para não
+    confirmar a existência do cliente — o mesmo critério da SensorDataAPIView."""
+
     def get(self, request, cliente_id):
+        if not pode_ver_cliente(request.user, cliente_id):
+            raise Http404("Cliente não existe")
         try:
             cliente = Cliente.objects.get(pk=cliente_id)
             if cliente.logo:
@@ -304,7 +320,7 @@ try:
 except Exception:
     db_mongo = None
 
-class ChillerDetailView(LoginRequiredMixin, TemplateView):
+class ChillerDetailView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'page_2.html'
 
     def get_context_data(self, **kwargs):
@@ -402,7 +418,7 @@ class ChillerDetailView(LoginRequiredMixin, TemplateView):
 
         return context
 
-class VariableLogView(LoginRequiredMixin, TemplateView):
+class VariableLogView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'page_5.html'
 
     def get_context_data(self, **kwargs):
@@ -487,7 +503,8 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
         context['variaveis'] = variaveis
         return context
 
-class TableClientsView(LoginRequiredMixin, TemplateView):
+# Lista TODOS os clientes: é a tabela de gestão interna, não é para utilizadores de cliente.
+class TableClientsView(SuperuserRequiredMixin, TemplateView):
     template_name = 'table_clients.html'
 
     def get_context_data(self, **kwargs):
@@ -503,8 +520,13 @@ class TableClientsView(LoginRequiredMixin, TemplateView):
         return context
     
 class ClienteChillerDetailView(LoginRequiredMixin, View):
+    """Devolve nome, email e lista de chillers de um cliente. O id vem do ?id= da query
+    string — não do ?cliente_id= — por isso não é o ClienteQueryStringMixin que o cobre."""
+
     def get(self, request, *args, **kwargs):
         cliente_id = request.GET.get("id")
+        if not pode_ver_cliente(request.user, cliente_id):
+            raise Http404("Cliente não existe")
         cliente = get_object_or_404(ClienteChillers, idCliente=cliente_id)
 
         chillers_data = []
@@ -522,7 +544,8 @@ class ClienteChillerDetailView(LoginRequiredMixin, View):
             "chillers": chillers_data
         })
     
-class ClienteUpdateView(LoginRequiredMixin, View):
+# Escreve nos dados de um cliente escolhido pelo corpo do pedido: só utilizadores internos.
+class ClienteUpdateView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             # IMPORTANTE: Usamos request.POST e request.FILES para suportar upload de arquivos (FormData)
@@ -558,7 +581,9 @@ class ClienteUpdateView(LoginRequiredMixin, View):
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
 
-class ClienteDeleteView(LoginRequiredMixin, View):
+# Apaga um cliente e o utilizador associado, escolhido pelo corpo do pedido. Antes só exigia
+# login: qualquer utilizador de cliente autenticado podia apagar outro cliente com um POST.
+class ClienteDeleteView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             data = json.loads(request.body)
@@ -614,17 +639,6 @@ class ClienteDeleteView(LoginRequiredMixin, View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
-class SuperuserRequiredMixin(UserPassesTestMixin):
-    """Restringe uma view aos utilizadores internos. O login já encaminha os
-    superutilizadores para /dashboard/ e os restantes para /cliente/ (ver
-    auth/login/views.py: redirect_by_role), mas as views de escrita abaixo são
-    chamadas por POST a partir de JavaScript e nada impediria um utilizador de
-    cliente autenticado de lhes chamar diretamente."""
-
-    def test_func(self):
-        return self.request.user.is_superuser
-
-
 class ChillerUpdateView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
@@ -679,7 +693,7 @@ class ChillerDeleteView(SuperuserRequiredMixin, View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
-class RelatorioView(LoginRequiredMixin, TemplateView):
+class RelatorioView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'relatorios.html'
 
     def get_context_data(self, **kwargs):
@@ -879,7 +893,7 @@ def get_mongo_data(ip_chiller):
         logger.error(f"Erro Mongo Helper: {e}")
     return data
 
-class LivroObraView(LoginRequiredMixin, TemplateView):
+class LivroObraView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'maintenance_log.html'
 
     def get_context_data(self, **kwargs):
@@ -994,7 +1008,8 @@ class LivroObraView(LoginRequiredMixin, TemplateView):
         
         return context
 
-class RegistarIntervencaoView(LoginRequiredMixin, View):
+# Cria intervenções em qualquer chiller e pode reiniciar o horímetro: escrita, só internos.
+class RegistarIntervencaoView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             chiller_id = request.POST.get('chiller_id')

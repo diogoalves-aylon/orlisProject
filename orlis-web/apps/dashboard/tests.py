@@ -9,12 +9,27 @@ porque só se lhe chama insert_one().
 Atenção ao estado global: memoria_energia e ultima_leitura_por_chiller vivem no módulo
 e sobrevivem entre testes. Todos os casos abaixo limpam-nos no setUp.
 """
+import json
 from datetime import datetime
 
-from django.test import SimpleTestCase, TestCase
+from django.contrib.auth.models import User
+from django.contrib.messages.storage.cookie import CookieStorage
+from django.core.exceptions import PermissionDenied
+from django.http import Http404
+from django.test import RequestFactory, SimpleTestCase, TestCase
 
-from apps.dashboard.models import Chiller, Cliente
+from apps.cliente.models import ClienteProfile
+# A área de cliente tem cópias com o mesmo nome das views do dashboard; renomeadas aqui
+# para as duas poderem ser testadas no mesmo módulo.
+from apps.cliente.views import (
+    ClienteLogoView as ClienteLogoAreaView, RelatorioView as ClienteRelatorioAreaView,
+)
+from apps.dashboard.models import Chiller, Cliente, Intervencao
 from apps.dashboard.services import telemetry
+from apps.dashboard.views import (
+    ClienteChillerDetailView, ClienteDeleteView, ClienteLogoView, ClienteUpdateView,
+    DashboardView, LivroObraView, RegistarIntervencaoView, RelatorioView, TableClientsView,
+)
 
 
 class ColecaoFalsa:
@@ -360,3 +375,149 @@ class GetActiveChillersTests(TestCase):
         # Sem gás nem ciclo definidos, aplicam-se os valores por omissão.
         self.assertEqual(ativos["10.0.0.60"]["gas"], telemetry.DEFAULT_FLUIDO)
         self.assertEqual(ativos["10.0.0.60"]["ciclo"], "verao")
+
+
+# --- Autorização das views do dashboard ------------------------------------------
+
+class AutorizacaoDashboardTests(TestCase):
+    """Cada teste corresponde a um acesso que era possível antes desta suite existir.
+
+    Usa RequestFactory em vez do test client de propósito. O test client instrumenta a
+    renderização de templates (store_rendered_templates faz copy() do Context), e isso
+    rebenta no Python 3.14 com "'super' object has no attribute 'dicts'" — um problema
+    do Django 5.0.6 com o 3.14, não do código em teste. Com o RequestFactory chamamos a
+    view diretamente, a TemplateResponse volta sem ser renderizada, e os testes passam
+    tanto aqui como no Python 3.12 do container.
+
+    O critério de resposta não é uniforme de propósito: ler um recurso de outro cliente dá
+    Http404, para não confirmar que existe; escrever indevidamente dá PermissionDenied,
+    porque aí o problema não é revelar a existência mas recusar a operação.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cliente_a = Cliente.objects.create(nome="Cliente A", email="a@exemplo.pt")
+        self.cliente_b = Cliente.objects.create(nome="Cliente B", email="b@exemplo.pt")
+        self.chiller_b = Chiller.objects.create(
+            nome="Chiller do B", localizacao="L", ipcontrolador="10.9.9.9",
+            status="ligado", gas="R407C", ciclo="verao", idCliente=self.cliente_b,
+        )
+        # Utilizador do cliente A: autenticado, mas só tem direito ao cliente A.
+        self.user_a = User.objects.create_user("user_a", password="x")
+        ClienteProfile.objects.create(user=self.user_a, cliente=self.cliente_a)
+        self.admin = User.objects.create_superuser("admin_teste", password="x")
+
+    def _get(self, view, user, **params):
+        request = self.factory.get("/", params)
+        request.user = user
+        return view(request)
+
+    def _post(self, view, user, dados=None, corpo_json=None):
+        if corpo_json is not None:
+            request = self.factory.post("/", data=json.dumps(corpo_json), content_type="application/json")
+        else:
+            request = self.factory.post("/", dados or {})
+        request.user = user
+        # O RequestFactory não passa pelo middleware das mensagens, e o caminho legítimo
+        # do dashboard chama messages.success(). Usa-se CookieStorage por não exigir sessão.
+        request._messages = CookieStorage(request)
+        return view(request)
+
+    # --- leitura de outro cliente: Http404 ---
+
+    def test_cliente_nao_ve_dashboard_de_outro_cliente(self):
+        with self.assertRaises(Http404):
+            self._get(DashboardView.as_view(), self.user_a, cliente_id=self.cliente_b.idCliente)
+
+    def test_cliente_ve_o_seu_proprio_dashboard(self):
+        r = self._get(DashboardView.as_view(), self.user_a, cliente_id=self.cliente_a.idCliente)
+        self.assertEqual(r.status_code, 200)
+
+    def test_superutilizador_ve_qualquer_cliente(self):
+        r = self._get(DashboardView.as_view(), self.admin, cliente_id=self.cliente_b.idCliente)
+        self.assertEqual(r.status_code, 200)
+
+    def test_sem_cliente_id_continua_a_funcionar(self):
+        # O dashboard sem cliente escolhido não deve ser bloqueado.
+        r = self._get(DashboardView.as_view(), self.user_a)
+        self.assertEqual(r.status_code, 200)
+
+    def test_relatorio_de_outro_cliente_bloqueado(self):
+        with self.assertRaises(Http404):
+            self._get(RelatorioView.as_view(), self.user_a, cliente_id=self.cliente_b.idCliente)
+
+    def test_livro_de_obra_de_outro_cliente_bloqueado(self):
+        with self.assertRaises(Http404):
+            self._get(LivroObraView.as_view(), self.user_a, cliente_id=self.cliente_b.idCliente)
+
+    def test_logo_de_outro_cliente_da_404(self):
+        request = self.factory.get("/")
+        request.user = self.user_a
+        with self.assertRaises(Http404):
+            ClienteLogoView.as_view()(request, cliente_id=self.cliente_b.idCliente)
+
+    def test_detalhe_de_outro_cliente_nao_expoe_email(self):
+        with self.assertRaises(Http404):
+            self._get(ClienteChillerDetailView.as_view(), self.user_a, id=self.cliente_b.idCliente)
+
+    def test_tabela_de_clientes_e_so_para_internos(self):
+        with self.assertRaises(PermissionDenied):
+            self._get(TableClientsView.as_view(), self.user_a)
+
+    # --- escrita indevida: PermissionDenied, e o objeto sobrevive ---
+
+    def test_cliente_nao_apaga_chiller_de_outro_pelo_dashboard(self):
+        with self.assertRaises(PermissionDenied):
+            self._post(DashboardView.as_view(), self.user_a, {"delete_id": self.chiller_b.idChiller})
+        self.assertTrue(Chiller.objects.filter(pk=self.chiller_b.pk).exists())
+
+    def test_cliente_nao_apaga_outro_cliente(self):
+        with self.assertRaises(PermissionDenied):
+            self._post(ClienteDeleteView.as_view(), self.user_a, corpo_json={"id": self.cliente_b.idCliente})
+        self.assertTrue(Cliente.objects.filter(pk=self.cliente_b.pk).exists())
+
+    def test_cliente_nao_altera_outro_cliente(self):
+        with self.assertRaises(PermissionDenied):
+            self._post(ClienteUpdateView.as_view(), self.user_a, {
+                "cliente_id": self.cliente_b.idCliente, "nome": "Invadido",
+                "email": "x@x.pt", "telefone": "1", "localidade": "L", "nif": "1",
+            })
+        self.cliente_b.refresh_from_db()
+        self.assertEqual(self.cliente_b.nome, "Cliente B")
+
+    def test_cliente_nao_registra_intervencao(self):
+        with self.assertRaises(PermissionDenied):
+            self._post(RegistarIntervencaoView.as_view(), self.user_a, {
+                "chiller_id": self.chiller_b.idChiller, "tecnico": "X",
+                "tipo": "preventiva", "categoria": "geral", "descricao": "d",
+            })
+        self.assertEqual(Intervencao.objects.count(), 0)
+
+    def test_superutilizador_apaga_chiller(self):
+        # A contraprova: a restrição não pode ter quebrado o fluxo legítimo.
+        self._post(DashboardView.as_view(), self.admin, {"delete_id": self.chiller_b.idChiller})
+        self.assertFalse(Chiller.objects.filter(pk=self.chiller_b.pk).exists())
+
+
+class AutorizacaoAreaClienteTests(TestCase):
+    """A área de cliente deriva quase sempre o cliente de request.user.clienteprofile, que é
+    o padrão certo. Estes dois casos eram a exceção."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.cliente_a = Cliente.objects.create(nome="Cliente A", email="a@exemplo.pt")
+        self.cliente_b = Cliente.objects.create(nome="Cliente B", email="b@exemplo.pt")
+        self.user_a = User.objects.create_user("user_a_cli", password="x")
+        ClienteProfile.objects.create(user=self.user_a, cliente=self.cliente_a)
+
+    def test_relatorio_de_outro_cliente_bloqueado(self):
+        request = self.factory.get("/", {"cliente_id": self.cliente_b.idCliente})
+        request.user = self.user_a
+        with self.assertRaises(Http404):
+            ClienteRelatorioAreaView.as_view()(request)
+
+    def test_logo_da_area_de_cliente_exige_posse(self):
+        request = self.factory.get("/")
+        request.user = self.user_a
+        with self.assertRaises(Http404):
+            ClienteLogoAreaView.as_view()(request, cliente_id=self.cliente_b.idCliente)
