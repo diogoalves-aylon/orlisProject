@@ -60,6 +60,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # O STATIC_ROOT precisa de ser um volume: o `collectstatic` costuma ser corrido com
+    # `docker compose run --rm`, num container descartável, e sem volume os ficheiros
+    # morrem com ele — o gunicorn arranca depois com o /app/staticfiles vazio e o whitenoise
+    # não serve nada, dando um dashboard sem CSS nem JavaScript. Com o volume, o container
+    # descartável e o `web` escrevem no mesmo sítio.
+    volumes:
+      - static_volume:/app/staticfiles
     command: ['gunicorn', '--config', 'gunicorn-cfg.py', 'config.wsgi']
     networks:
       - thermia_net
@@ -88,6 +95,7 @@ services:
 
 volumes:
   pgdata:
+  static_volume:
 
 networks:
   # Criada pelo compose do MongoDB, que é de outra equipa. Tem de ser `external`: sem isso
