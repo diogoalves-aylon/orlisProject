@@ -37,8 +37,8 @@ TEMPLATE_CONFIG = {
 # Theme Variables
 # ? Personalize template by changing theme variables (For ex: Name, URL Version etc...)
 THEME_VARIABLES = {
-    "creator_name": "ednu.ai",
-    "creator_url": "https://ednuai.com",
+    "creator_name": "Aylon.AI",
+    "creator_url": "https://aylon.ai",
     "template_name": "",
     "template_suffix": "ORLIS",
     "template_version": "1.0.0",

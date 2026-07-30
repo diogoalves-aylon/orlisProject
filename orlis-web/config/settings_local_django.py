@@ -137,6 +137,19 @@ MQTT_USERNAME = os.environ.get('MQTT_USERNAME') or None
 MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD') or None
 MQTT_METADATA_REFRESH_SECONDS = int(os.environ.get('MQTT_METADATA_REFRESH_SECONDS', '300'))
 MQTT_TIMESTAMP_MAX_SKEW_SECONDS = int(os.environ.get('MQTT_TIMESTAMP_MAX_SKEW_SECONDS', '3600'))
+# O broker da Thermia publica em iot/raspberry-aylon/# ; o simulador local usa
+# chillers/+/telemetria. Por isso o tópico é configurável e não uma constante do módulo.
+MQTT_TOPIC = os.environ.get('MQTT_TOPIC', 'chillers/+/telemetria')
+
+# mTLS (o broker da Thermia em 172.20.50.162:8883 exige CA + certificado + chave do cliente).
+MQTT_TLS_ENABLED = os.environ.get('MQTT_TLS_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
+MQTT_TLS_CA_CERTS = os.environ.get('MQTT_TLS_CA_CERTS') or None
+MQTT_TLS_CERTFILE = os.environ.get('MQTT_TLS_CERTFILE') or None
+MQTT_TLS_KEYFILE = os.environ.get('MQTT_TLS_KEYFILE') or None
+# Desliga a verificação do hostname do broker. Só necessário quando se liga por um nome que
+# o certificado não cobre — por exemplo através de um túnel SSH para localhost. Na ligação
+# direta a 172.20.50.162 a verificação passa, por isso o default é não desligar nada.
+MQTT_TLS_INSECURE = os.environ.get('MQTT_TLS_INSECURE', 'false').lower() in ('1', 'true', 'yes', 'on')
 
 # Sem isto o DRF assume AllowAny e qualquer endpoint novo nasce aberto ao público.
 # O default é fechado; uma view que deva ser pública sobrepõe-no explicitamente.
