@@ -1,5 +1,6 @@
 """
-Testes do processamento de telemetria (apps.dashboard.services.telemetry).
+Testes do processamento de telemetria (apps.dashboard.services.telemetry) e da receção
+das mensagens MQTT (apps.dashboard.management.commands.mqtt_listener).
 
 O módulo é quase todo puro, o que o torna barato de testar sem broker nem hardware.
 As exceções são increment_hours() e get_active_chillers(), que tocam no Postgres, e
@@ -28,6 +29,7 @@ from apps.cliente.views import (
     ClienteLogoView as ClienteLogoAreaView, RelatorioView as ClienteRelatorioAreaView,
     VariableLogView as ClienteVariableLogAreaView,
 )
+from apps.dashboard.management.commands import mqtt_listener
 from apps.dashboard.models import Chiller, Cliente, Intervencao
 from apps.dashboard.services import telemetry
 from apps.dashboard.views import (
@@ -196,6 +198,151 @@ class TimestampDoPayloadTests(SimpleTestCase):
             telemetry._resolver_timestamp_para_calculo(self.IP, "2026-07-27 12:00:00", recebido),
             "2026-07-27 15:00:00",
         )
+
+
+# --- Forma do payload MQTT -------------------------------------------------------
+
+# Mensagem copiada tal-qual do broker de produção (172.20.50.162:8883, tópico
+# iot/raspberry-aylon/chillers/chiller_1/telemetry, 31/07/2026). As leituras vêm dentro
+# de "values" — com a validação antiga, que as procurava no topo do payload, TODAS as
+# mensagens reais eram descartadas e nada chegava ao MongoDB.
+PAYLOAD_RASPBERRY = {
+    "timestamp": "2026-07-31 10:48:45",
+    "chiller": "Chiller 1",
+    "ip": "10.0.0.1",
+    "fluido": "R407C",
+    "ciclo": "verao",
+    "values": {
+        "temps": {"T1": 16.3, "T2": 71.0, "T3": 38.0, "T4": 39.3, "T5": 10.7},
+        "pressoes": {"P1": 17.167914615480083, "P2": 19.374232959638164},
+        "medidor": {
+            "Corrente_L1_output": 0.0, "Corrente_L2_output": 0.0, "Corrente_L3_output": 0.0,
+            "Tensao_L1_L2_output": 418.91082763671875, "Tensao_L2_L3_output": 419.19793701171875,
+            "Tensao_L3_L1_output": 418.90997314453125,
+            "EnergiaAtivaParcial_output": 15874.462890625, "EnergiaReativaParcial_output": 16288.80859375,
+            "EnergiaAtivaTotal_output": 15874.462890625, "EnergiaReativaTotal_output": 16288.80859375,
+            "PotenciaAtivaTotal_kW": 0.0, "MediaTensoes_output": 419.00624593098956,
+            "MediaCorrentes_output": 0.0, "estado_chiller": "standby",
+        },
+    },
+}
+
+# Contrato inicial: os mesmos blocos, mas no topo do payload.
+PAYLOAD_PLANO = {
+    "ip": "10.25.4.2",
+    "timestamp": "2026-07-31 10:48:45",
+    "temps": {"T1": 12.0},
+    "pressoes": {"P1": 4.0},
+    "medidor": {"EnergiaAtivaTotal_output": 100.0},
+}
+
+
+class NormalizacaoDoPayloadTests(SimpleTestCase):
+    def test_payload_do_raspberry_e_aceite(self):
+        dados, erro = mqtt_listener._normalizar_payload(PAYLOAD_RASPBERRY)
+        self.assertIsNone(erro)
+        self.assertEqual(dados["ip"], "10.0.0.1")
+        self.assertEqual(dados["timestamp"], "2026-07-31 10:48:45")
+        self.assertEqual(dados["temps"]["T2"], 71.0)
+        self.assertEqual(dados["pressoes"]["P2"], 19.374232959638164)
+        self.assertEqual(dados["medidor"]["EnergiaAtivaTotal_output"], 15874.462890625)
+
+    def test_metadados_do_payload_ficam_disponiveis(self):
+        dados, _ = mqtt_listener._normalizar_payload(PAYLOAD_RASPBERRY)
+        self.assertEqual((dados["chiller"], dados["fluido"], dados["ciclo"]), ("Chiller 1", "R407C", "verao"))
+
+    def test_forma_antiga_continua_a_funcionar(self):
+        dados, erro = mqtt_listener._normalizar_payload(PAYLOAD_PLANO)
+        self.assertIsNone(erro)
+        self.assertEqual(dados["temps"], {"T1": 12.0})
+        self.assertIsNone(dados["chiller"])
+
+    def test_sem_blocos_de_leituras_e_rejeitado(self):
+        _, erro = mqtt_listener._normalizar_payload({"ip": "10.0.0.1", "timestamp": "2026-07-31 10:48:45"})
+        self.assertIn("temps", erro)
+
+    def test_sem_ip_e_rejeitado(self):
+        payload = {k: v for k, v in PAYLOAD_RASPBERRY.items() if k != "ip"}
+        _, erro = mqtt_listener._normalizar_payload(payload)
+        self.assertIn("ip", erro)
+
+    def test_values_com_tipo_errado_e_rejeitado(self):
+        _, erro = mqtt_listener._normalizar_payload({"ip": "1", "timestamp": "t", "values": "nada"})
+        self.assertIn("values", erro)
+
+    def test_payload_que_nao_e_objeto_e_rejeitado(self):
+        self.assertIsNotNone(mqtt_listener._normalizar_payload([1, 2, 3])[1])
+
+
+class TopicosTests(SimpleTestCase):
+    def test_lista_separada_por_virgulas(self):
+        self.assertEqual(
+            mqtt_listener._topicos("iot/raspberry-aylon/#, chillers/+/telemetria"),
+            ["iot/raspberry-aylon/#", "chillers/+/telemetria"],
+        )
+
+    def test_vazio_da_lista_vazia(self):
+        self.assertEqual(mqtt_listener._topicos(""), [])
+        self.assertEqual(mqtt_listener._topicos(None), [])
+
+
+class MetadadosDeChillerNaoRegistadoTests(SimpleTestCase):
+    """Um IP que não está na BD não pode fazer perder a leitura: grava-se com os
+    metadados do próprio payload."""
+
+    def test_usa_o_que_o_payload_traz(self):
+        dados, _ = mqtt_listener._normalizar_payload(PAYLOAD_RASPBERRY)
+        meta = mqtt_listener.Command._meta_do_payload(dados, "10.0.0.1", avisar=False)
+        self.assertEqual(meta, {"nome": "Chiller 1", "gas": "R407C", "ciclo": "verao"})
+
+    def test_sem_metadados_no_payload_cai_nos_defaults(self):
+        dados, _ = mqtt_listener._normalizar_payload(PAYLOAD_PLANO)
+        meta = mqtt_listener.Command._meta_do_payload(dados, "10.25.4.2", avisar=False)
+        self.assertEqual(meta, {"nome": "10.25.4.2", "gas": telemetry.DEFAULT_FLUIDO, "ciclo": "verao"})
+
+
+class CacheDeMetadadosTests(SimpleTestCase):
+    def _cache(self, chillers):
+        """Cache com get_active_chillers() falso, devolvendo (cache, contador_de_queries)."""
+        chamadas = []
+
+        def falso():
+            chamadas.append(1)
+            return dict(chillers)
+
+        cache = mqtt_listener.ChillerMetadataCache(300)
+        patcher = mock.patch.object(telemetry, "get_active_chillers", falso)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return cache, chamadas
+
+    def test_ip_registado_resolve_sem_query(self):
+        cache, chamadas = self._cache({"10.0.0.1": {"nome": "C1", "gas": "R407C", "ciclo": "verao"}})
+        cache.reload()
+        meta, primeira_falha = cache.resolve("10.0.0.1")
+        self.assertEqual(meta["nome"], "C1")
+        self.assertFalse(primeira_falha)
+        self.assertEqual(len(chamadas), 1)  # só o reload inicial
+
+    def test_ip_desconhecido_so_forca_um_refresh(self):
+        # Sem esta travagem, um chiller que publica a cada 30s e não está registado
+        # gerava uma query ao Postgres por mensagem, para sempre.
+        cache, chamadas = self._cache({})
+        cache.reload()
+        self.assertEqual(cache.resolve("10.0.0.9"), (None, True))
+        self.assertEqual(len(chamadas), 2)
+        self.assertEqual(cache.resolve("10.0.0.9"), (None, False))
+        self.assertEqual(len(chamadas), 2)
+
+    def test_ip_registado_mais_tarde_deixa_de_ser_desconhecido(self):
+        chillers = {}
+        cache, _ = self._cache(chillers)
+        cache.reload()
+        self.assertEqual(cache.resolve("10.0.0.9"), (None, True))
+        chillers["10.0.0.9"] = {"nome": "C9", "gas": "R404A", "ciclo": "inverno"}
+        cache.reload()  # o refresh periódico apanha o chiller novo
+        meta, _ = cache.resolve("10.0.0.9")
+        self.assertEqual(meta["nome"], "C9")
 
 
 # --- Métricas do ciclo -----------------------------------------------------------

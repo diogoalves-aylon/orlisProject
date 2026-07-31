@@ -134,9 +134,13 @@ MQTT_USERNAME = os.environ.get('MQTT_USERNAME') or None
 MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD') or None
 MQTT_METADATA_REFRESH_SECONDS = int(os.environ.get('MQTT_METADATA_REFRESH_SECONDS', '300'))
 MQTT_TIMESTAMP_MAX_SKEW_SECONDS = int(os.environ.get('MQTT_TIMESTAMP_MAX_SKEW_SECONDS', '3600'))
-# O broker da Thermia publica em iot/raspberry-aylon/# ; o simulador local usa
-# chillers/+/telemetria. Por isso o tópico é configurável e não uma constante do módulo.
-MQTT_TOPIC = os.environ.get('MQTT_TOPIC', 'chillers/+/telemetria')
+# Filtros de subscrição, separados por vírgula (o listener subscreve todos).
+# O default tem SÓ o tópico do Raspberry: no servidor o Mongo tem de conter apenas leituras
+# reais, e o listener aceita telemetria de IPs que não estão registados na BD — juntar aqui
+# o tópico do simulador faria com que qualquer teste publicado no broker de produção ficasse
+# gravado como se fosse do PLC, sem forma de o distinguir. Em desenvolvimento acrescenta-se
+# ",chillers/+/telemetria" no .env local.
+MQTT_TOPIC = os.environ.get('MQTT_TOPIC', 'iot/raspberry-aylon/#')
 
 # mTLS (o broker da Thermia em 172.20.50.162:8883 exige CA + certificado + chave do cliente).
 MQTT_TLS_ENABLED = os.environ.get('MQTT_TLS_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')

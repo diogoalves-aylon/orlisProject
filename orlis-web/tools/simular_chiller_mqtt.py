@@ -2,8 +2,10 @@
 """
 Simulador do Raspberry/PLC para o listener MQTT do orlis-web.
 
-Publica em chillers/<ip>/telemetria com o payload do contrato, na forma exata dos
-documentos reais já gravados no MongoDB (temps T1-T5, medidor completo).
+Publica em chillers/<ip>/telemetria com o payload que o Raspberry publica em produção:
+leituras dentro de "values" (temps T1-T5, pressoes, medidor completo) e metadados do
+chiller no topo. Com --formato plano usa-se a forma antiga (leituras no topo), que o
+listener também aceita.
 
 O timestamp é gerado em hora local de Lisboa (naive), que é a referência usada por
 apps.dashboard.services.telemetry.agora_local() — assim não dispara o aviso de skew.
@@ -30,10 +32,16 @@ Uso (a partir da raiz do projeto Django, com o listener a correr noutro terminal
 
     # publicar num broker mTLS (ex.: o da Thermia, a partir do servidor 172.20.50.164)
     python tools/simular_chiller_mqtt.py --host 172.20.50.162 --port 8883 \
-        --topico iot/raspberry-aylon/chiller-01 \
+        --topico teste/simulador/chiller-01 \
         --ca-certs /opt/apps/thermia/certs/mqtt/ca.crt \
         --certfile /opt/apps/thermia/certs/mqtt/thermia-platform.crt \
         --keyfile /opt/apps/thermia/certs/mqtt/thermia-platform.key
+
+CUIDADO com o broker de produção: o listener subscreve iot/raspberry-aylon/# e grava tudo o
+que aí aparecer, mesmo de IPs que não estão registados na BD. Publicar valores simulados
+debaixo desse prefixo mete-os no Mongo de produção misturados com os do PLC, sem forma de os
+distinguir. Para testar a ligação/mTLS ao broker da Thermia usar um tópico FORA desse prefixo
+(como no exemplo acima) — que é o que o mosquitto_sub confirma, sem escrever nada.
 """
 import argparse
 import json
@@ -75,7 +83,8 @@ def agora_lisboa():
     return datetime.now(FUSO).replace(tzinfo=None)
 
 
-def build_payload(ip, kwh, kvarh, standby, skew_horas, perfil, jitter):
+def build_payload(ip, kwh, kvarh, standby, skew_horas, perfil, jitter, formato="values",
+                  nome="Chiller 1", fluido="R407C", ciclo="verao"):
     ts = agora_lisboa() + timedelta(hours=skew_horas)
     base = PERFIS[perfil]
 
@@ -106,12 +115,25 @@ def build_payload(ip, kwh, kvarh, standby, skew_horas, perfil, jitter):
         "PotenciaAtivaTotal_kW": potencia,
     }
 
+    if formato == "plano":
+        # Contrato inicial: os blocos de leituras no topo do payload.
+        return {
+            "ip": ip,
+            "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "temps": temps,
+            "pressoes": pressoes,
+            "medidor": medidor,
+        }
+
+    # Forma que o Raspberry publica: leituras dentro de "values", com os metadados do
+    # chiller no topo. É o default porque é o que se vê no broker de produção.
     return {
-        "ip": ip,
         "timestamp": ts.strftime("%Y-%m-%d %H:%M:%S"),
-        "temps": temps,
-        "pressoes": pressoes,
-        "medidor": medidor,
+        "chiller": nome,
+        "ip": ip,
+        "fluido": fluido,
+        "ciclo": ciclo,
+        "values": {"temps": temps, "pressoes": pressoes, "medidor": medidor},
     }
 
 
@@ -128,6 +150,10 @@ def main():
     p.add_argument("--standby", action="store_true", help="corrente abaixo do limiar (0.4 A)")
     p.add_argument("--skew-horas", type=float, default=0.0, help="desvio a somar ao timestamp")
     p.add_argument("--jitter", type=float, default=0.3, help="ruído aleatório nas leituras (0 = valores fixos)")
+    p.add_argument("--formato", choices=("values", "plano"), default="values",
+                   help="values: leituras dentro de 'values' (o que o Raspberry publica); "
+                        "plano: leituras no topo do payload (contrato inicial)")
+    p.add_argument("--nome", default="Chiller 1", help="nome do chiller no payload (só no formato 'values')")
     p.add_argument("--topico", help="sobrepõe o tópico (o broker da Thermia usa iot/raspberry-aylon/<algo>)")
     p.add_argument("--ca-certs", help="CA do broker — ativa TLS")
     p.add_argument("--certfile", help="certificado do cliente (mTLS)")
@@ -154,10 +180,11 @@ def main():
     enviadas = 0
 
     while True:
-        payload = build_payload(args.ip, kwh, kvarh, args.standby, args.skew_horas, args.perfil, args.jitter)
+        payload = build_payload(args.ip, kwh, kvarh, args.standby, args.skew_horas, args.perfil,
+                                args.jitter, formato=args.formato, nome=args.nome)
         publish.single(topic, json.dumps(payload), hostname=args.host, port=args.port, qos=1, tls=tls)
         enviadas += 1
-        m = payload["medidor"]
+        m = payload["values"]["medidor"] if args.formato == "values" else payload["medidor"]
         print(f"-> {topic}  ts={payload['timestamp']}  perfil={args.perfil}  "
               f"kWh={m['EnergiaAtivaTotal_output']}  I={m['Corrente_L1_output']}A")
 
