@@ -42,6 +42,33 @@ def _topicos(valor):
     return [t.strip() for t in (valor or "").split(",") if t.strip()]
 
 
+def _aliases_de_ip(valor):
+    """Constrói o mapa {ip_do_payload: ipcontrolador_na_bd} a partir de MQTT_IP_ALIASES,
+    escrito como "origem:destino,origem2:destino2".
+
+    Existe porque o Raspberry é um proxy: publica o endereço interno do PLC, e o chiller
+    está registado na plataforma pelo IP do Raspberry, que é quem faz a comunicação. É a
+    identidade traduzida que vai para o documento do Mongo — as views procuram os documentos
+    por {"ip": chiller.ipcontrolador}, portanto sem tradução o dashboard fica vazio mesmo
+    com a telemetria a chegar e a ser gravada.
+
+    Pares mal formados são ignorados com um aviso: um typo no .env não deve derrubar o
+    listener nem, pior, passar em silêncio.
+    """
+    aliases = {}
+    for par in (valor or "").split(","):
+        par = par.strip()
+        if not par:
+            continue
+        origem, _, destino = par.partition(":")
+        origem, destino = origem.strip(), destino.strip()
+        if not origem or not destino:
+            logger.warning("MQTT_IP_ALIASES: par ignorado por não ter a forma origem:destino (%r).", par)
+            continue
+        aliases[origem] = destino
+    return aliases
+
+
 def _normalizar_payload(payload):
     """Aplana o payload MQTT para a forma que process_chiller() espera.
 
@@ -171,6 +198,12 @@ class Command(BaseCommand):
         refresh_thread.start()
 
         topics = _topicos(getattr(settings, "MQTT_TOPIC", None)) or _topicos(DEFAULT_TOPIC)
+        ip_aliases = _aliases_de_ip(getattr(settings, "MQTT_IP_ALIASES", ""))
+        if ip_aliases:
+            logger.info(
+                "Tradução de IPs do payload ativa: %s",
+                ", ".join(f"{o} -> {d}" for o, d in sorted(ip_aliases.items())),
+            )
 
         mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="orlis-mqtt-listener")
         username = getattr(settings, "MQTT_USERNAME", None)
@@ -180,7 +213,9 @@ class Command(BaseCommand):
         if getattr(settings, "MQTT_TLS_ENABLED", False):
             self._configure_tls(mqtt_client)
 
-        mqtt_client.user_data_set({"cache": cache, "collection": collection, "topics": topics})
+        mqtt_client.user_data_set(
+            {"cache": cache, "collection": collection, "topics": topics, "ip_aliases": ip_aliases}
+        )
         mqtt_client.on_connect = self._on_connect
         mqtt_client.on_disconnect = self._on_disconnect
         mqtt_client.on_message = self._on_message
@@ -283,8 +318,15 @@ class Command(BaseCommand):
             logger.error("Payload inválido em %s (%s): %s", msg.topic, erro, payload)
             return
 
-        ip = dados["ip"]
-        logger.info("Mensagem recebida de %s (tópico %s)", ip, msg.topic)
+        ip_payload = dados["ip"]
+        # A identidade traduzida é a que segue para o resto do processamento: documento no
+        # Mongo, memória de energia e horímetro. Tudo tem de ficar debaixo do mesmo IP que
+        # as views usam para procurar (o ipcontrolador registado na BD).
+        ip = userdata["ip_aliases"].get(ip_payload, ip_payload)
+        if ip != ip_payload:
+            logger.info("Mensagem recebida de %s -> %s (tópico %s)", ip_payload, ip, msg.topic)
+        else:
+            logger.info("Mensagem recebida de %s (tópico %s)", ip, msg.topic)
 
         meta, primeira_falha = cache.resolve(ip)
         if meta is None:

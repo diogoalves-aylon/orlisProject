@@ -286,6 +286,30 @@ class TopicosTests(SimpleTestCase):
         self.assertEqual(mqtt_listener._topicos(None), [])
 
 
+class AliasesDeIpTests(SimpleTestCase):
+    """O Raspberry é proxy do PLC: publica o IP interno do PLC, e o chiller está registado
+    pelo IP do Raspberry. A telemetria tem de ficar gravada com o IP registado, senão as
+    views — que procuram por {"ip": chiller.ipcontrolador} — não encontram nada."""
+
+    def test_par_simples(self):
+        self.assertEqual(mqtt_listener._aliases_de_ip("10.0.0.1:10.25.4.2"), {"10.0.0.1": "10.25.4.2"})
+
+    def test_varios_pares_com_espacos(self):
+        self.assertEqual(
+            mqtt_listener._aliases_de_ip(" 10.0.0.1 : 10.25.4.2 , 10.0.0.2:10.25.4.3 "),
+            {"10.0.0.1": "10.25.4.2", "10.0.0.2": "10.25.4.3"},
+        )
+
+    def test_vazio_nao_traduz_nada(self):
+        self.assertEqual(mqtt_listener._aliases_de_ip(""), {})
+        self.assertEqual(mqtt_listener._aliases_de_ip(None), {})
+
+    def test_par_mal_formado_e_ignorado_sem_rebentar(self):
+        # Um typo no .env não pode derrubar o listener nem passar em silêncio (fica um aviso).
+        self.assertEqual(mqtt_listener._aliases_de_ip("10.0.0.1,10.0.0.2:10.25.4.3"), {"10.0.0.2": "10.25.4.3"})
+        self.assertEqual(mqtt_listener._aliases_de_ip(":10.25.4.2"), {})
+
+
 class MetadadosDeChillerNaoRegistadoTests(SimpleTestCase):
     """Um IP que não está na BD não pode fazer perder a leitura: grava-se com os
     metadados do próprio payload."""

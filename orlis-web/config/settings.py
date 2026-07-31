@@ -141,6 +141,13 @@ MQTT_TIMESTAMP_MAX_SKEW_SECONDS = int(os.environ.get('MQTT_TIMESTAMP_MAX_SKEW_SE
 # gravado como se fosse do PLC, sem forma de o distinguir. Em desenvolvimento acrescenta-se
 # ",chillers/+/telemetria" no .env local.
 MQTT_TOPIC = os.environ.get('MQTT_TOPIC', 'iot/raspberry-aylon/#')
+# Tradução do campo "ip" do payload para o ipcontrolador registado na BD, no formato
+# "origem:destino" separado por vírgulas. O Raspberry é um proxy entre o PLC e o broker:
+# publica o endereço interno do PLC (10.0.0.1), que não identifica nada na plataforma — o
+# chiller está registado pelo IP do próprio Raspberry (10.25.4.2), que é quem faz a
+# comunicação. Sem esta tradução a telemetria fica gravada debaixo de um IP que nenhuma
+# view procura, e o dashboard continua vazio apesar de os dados chegarem.
+MQTT_IP_ALIASES = os.environ.get('MQTT_IP_ALIASES', '')
 
 # mTLS (o broker da Thermia em 172.20.50.162:8883 exige CA + certificado + chave do cliente).
 MQTT_TLS_ENABLED = os.environ.get('MQTT_TLS_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
