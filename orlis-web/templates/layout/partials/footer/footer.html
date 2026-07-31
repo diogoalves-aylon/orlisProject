@@ -5,10 +5,13 @@
         © <script>
         document.write(new Date().getFullYear())
 
-        </script>, made with ❤️ by <a href="{% get_theme_variables 'creator_url' %}" target="_blank" class="footer-link">{% get_theme_variables 'creator_name' %}</a>
+        </script>, made by <a href="{% get_theme_variables 'creator_url' %}" target="_blank" class="footer-link">{% get_theme_variables 'creator_name' %}</a>
       </div>
       <div class="d-none d-lg-inline-block">
-        <a href="{% get_theme_variables 'documentation' %}/django-introduction.html" target="_blank" class="footer-link me-4">Orlis®</a>
+        <!-- Sem link: era o do boilerplate do template (a variável 'documentation' está
+             vazia, portanto apontava para /django-introduction.html, uma página que não
+             existe neste projeto). O Orlis® é só a marca. -->
+        <span class="text-body me-4">Orlis®</span>
       </div>
     </div>
   </div>
