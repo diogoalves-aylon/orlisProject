@@ -1,5 +1,6 @@
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from apps.dashboard.permissions import ClienteQueryStringMixin, pode_ver_cliente
 from django.conf import settings
 from apps.dashboard.models import Chiller
 from django.shortcuts import redirect
@@ -291,13 +292,12 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
         if not context.get('layout_path'):
             context['layout_path'] = 'base.html'
 
-        # --- LISTA DE EXCLUSÃO ATUALIZADA ---
-        # Adicionado: custo, h1, h2, h3, h4
-        EXCLUDED_KEYS = {
-            'estado_h1', 'estado_h2', 'estado_h3', 'estado_h4',
-            'estado_chiller', 'aviso', 'ciclo',
-            'custo', 'h1', 'h2', 'h3', 'h4'
-        }
+        # Mesmo critério da view do dashboard, e tem de continuar a ser: as duas páginas
+        # partilham o template, portanto uma lista diferente aqui só se notaria como uma
+        # variável que aparece a um utilizador e não ao outro. É o tipo do valor que
+        # decide o que é desenhável; a lista negra é só para o que é número mas não é uma
+        # leitura.
+        EXCLUDED_KEYS = {'custo'}
 
         # -----------------------------------------------------------
         # Capturar cliente autenticado
@@ -341,24 +341,25 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
                 if last_doc:
                     values = last_doc.get("values", {}) or {}
 
-                    # 1. Varre seções específicas (medidor, temps, etc)
-                    for section in ("medidor", "temps", "pressoes", "entalpias"):
-                        section_data = values.get(section, {})
-                        if isinstance(section_data, dict):
-                            for key in section_data.keys():
-                                if key not in EXCLUDED_KEYS:
-                                    variaveis.add(key)
+                    # As secções não vêm de uma lista fixa: estavam aqui escritas à mão
+                    # ("medidor", "temps", "pressoes", "entalpias") e qualquer secção nova
+                    # no documento passava despercebida em silêncio.
+                    #
+                    # O bool é subclasse do int em Python, por isso tem de ser excluído à
+                    # mão, senão uma flag entrava na lista como se fosse uma medida.
+                    def e_leitura(nome, valor):
+                        return (
+                            nome not in EXCLUDED_KEYS
+                            and isinstance(valor, (int, float))
+                            and not isinstance(valor, bool)
+                        )
 
-                    # 2. Varre a raiz do JSON (excluindo as seções já processadas)
-                    for key, val in values.items():
-                        if key in ("medidor", "temps", "pressoes", "entalpias"):
-                            continue
-                        
-                        # Verifica se a chave da raiz está na lista de exclusão
-                        if key in EXCLUDED_KEYS:
-                            continue
-
-                        if isinstance(val, (int, float, str)):
+                    for key, content in values.items():
+                        if isinstance(content, dict):
+                            for sub_key, sub_val in content.items():
+                                if e_leitura(sub_key, sub_val):
+                                    variaveis.add(sub_key)
+                        elif e_leitura(key, content):
                             variaveis.add(key)
 
             except Exception as e:
@@ -374,7 +375,9 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
         context['variaveis'] = sorted(list(variaveis))
         return context
     
-class RelatorioView(LoginRequiredMixin, TemplateView):
+# Toma o cliente do ?cliente_id= da query string, tal como as views do dashboard tomavam:
+# um utilizador do cliente A pedia o relatório do B trocando o id.
+class RelatorioView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'relatorio.html'
 
     def get_context_data(self, **kwargs):
@@ -537,7 +540,8 @@ class RelatorioView(LoginRequiredMixin, TemplateView):
 
         # LOGO
         logo_abspath = os.path.abspath('src/assets/img/logo_arcoxxi.png')
-        context['logo_path'] = f"file:///{logo_abspath.replace('\\', '/')}" if os.path.exists(logo_abspath) else ""
+        logo_path_str = logo_abspath.replace('\\', '/')
+        context['logo_path'] = f"file:///{logo_path_str}" if os.path.exists(logo_abspath) else ""
         return context
 
     def safe_float(self, val):
@@ -594,8 +598,14 @@ class RelatorioView(LoginRequiredMixin, TemplateView):
 
 
 
-class ClienteLogoView(View):
+class ClienteLogoView(LoginRequiredMixin, View):
+    """Segunda cópia desta view — a outra está em apps/dashboard/views.py. Nenhuma das duas
+    tinha autenticação: o cliente_id é sequencial, portanto qualquer anónimo podia enumerar
+    os clientes existentes."""
+
     def get(self, request, cliente_id):
+        if not pode_ver_cliente(request.user, cliente_id):
+            raise Http404("Cliente não existe")
         try:
             cliente = Cliente.objects.get(pk=cliente_id)
             if cliente.logo:

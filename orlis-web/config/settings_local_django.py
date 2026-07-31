@@ -122,13 +122,44 @@ DATABASES = {
         'USER': os.environ.get('DB_USER', ''),
         'PASSWORD': os.environ.get('DB_PASSWORD', ''),
         'HOST': os.environ.get('DB_HOST', ''),
-        'PORT': '5432',
+        # Estava '5432' fixo, apesar de o .env.example definir DB_PORT — a variável era
+        # silenciosamente ignorada, e um Postgres noutra porta falhava sem dizer porquê.
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
 # MongoDB (telemetria dos chillers)
 MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 MONGO_DB_NAME = os.environ.get('MONGO_DB_NAME', 'orlis_db')
+
+# MQTT (listener de telemetria dos chillers)
+MQTT_HOST = os.environ.get('MQTT_HOST', 'localhost')
+MQTT_PORT = int(os.environ.get('MQTT_PORT', '1883'))
+MQTT_USERNAME = os.environ.get('MQTT_USERNAME') or None
+MQTT_PASSWORD = os.environ.get('MQTT_PASSWORD') or None
+MQTT_METADATA_REFRESH_SECONDS = int(os.environ.get('MQTT_METADATA_REFRESH_SECONDS', '300'))
+MQTT_TIMESTAMP_MAX_SKEW_SECONDS = int(os.environ.get('MQTT_TIMESTAMP_MAX_SKEW_SECONDS', '3600'))
+# O broker da Thermia publica em iot/raspberry-aylon/# ; o simulador local usa
+# chillers/+/telemetria. Por isso o tópico é configurável e não uma constante do módulo.
+MQTT_TOPIC = os.environ.get('MQTT_TOPIC', 'chillers/+/telemetria')
+
+# mTLS (o broker da Thermia em 172.20.50.162:8883 exige CA + certificado + chave do cliente).
+MQTT_TLS_ENABLED = os.environ.get('MQTT_TLS_ENABLED', 'false').lower() in ('1', 'true', 'yes', 'on')
+MQTT_TLS_CA_CERTS = os.environ.get('MQTT_TLS_CA_CERTS') or None
+MQTT_TLS_CERTFILE = os.environ.get('MQTT_TLS_CERTFILE') or None
+MQTT_TLS_KEYFILE = os.environ.get('MQTT_TLS_KEYFILE') or None
+# Desliga a verificação do hostname do broker. Só necessário quando se liga por um nome que
+# o certificado não cobre — por exemplo através de um túnel SSH para localhost. Na ligação
+# direta a 172.20.50.162 a verificação passa, por isso o default é não desligar nada.
+MQTT_TLS_INSECURE = os.environ.get('MQTT_TLS_INSECURE', 'false').lower() in ('1', 'true', 'yes', 'on')
+
+# Sem isto o DRF assume AllowAny e qualquer endpoint novo nasce aberto ao público.
+# O default é fechado; uma view que deva ser pública sobrepõe-no explicitamente.
+REST_FRAMEWORK = {
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
 
 
 # Password validation

@@ -9,11 +9,12 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse, Http404
 from django.views import View
 from django.views.generic import TemplateView
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.template.loader import render_to_string
+from django.core.exceptions import PermissionDenied
 from django.db.models import ProtectedError
 from django.urls import reverse
 from web_project import TemplateLayout
@@ -24,6 +25,7 @@ from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 
 # MongoDB Imports
 from pymongo import MongoClient, DESCENDING
@@ -36,9 +38,10 @@ from weasyprint import HTML
 # Project Imports
 from web_project import TemplateLayout
 from .models import Cliente, Chiller, ClienteChillers, Intervencao
+from .permissions import ClienteQueryStringMixin, SuperuserRequiredMixin, pode_ver_cliente
 
 
-class DashboardView(LoginRequiredMixin, TemplateView):
+class DashboardView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'dashboard.html'
 
     def get_context_data(self, **kwargs):
@@ -68,6 +71,13 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         return context
 
     def post(self, request, *args, **kwargs):
+        # Este POST apaga, edita e cria chillers — as mesmas operações que o
+        # ChillerUpdateView e o ChillerDeleteView já restringem a superutilizadores. Sem
+        # esta verificação, qualquer utilizador autenticado apagava um chiller de outro
+        # cliente enviando o delete_id, e o formulário do dashboard era o único obstáculo.
+        if not request.user.is_superuser:
+            raise PermissionDenied("Apenas utilizadores internos podem alterar chillers.")
+
         cliente_id = request.POST.get('cliente_id_hidden') or request.GET.get('cliente_id')
 
         # --- AÇÃO: APAGAR ---
@@ -142,124 +152,35 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
         return redirect(f"{reverse('dashboard')}?cliente_id={cliente_id}")
 
-class ClienteLogoView(View):
-    def get(self, request, cliente_id):
-        try:
-            cliente = Cliente.objects.get(pk=cliente_id)
-            if cliente.logo:
-                return HttpResponse(cliente.logo, content_type='image/png')
-            raise Http404("Logo não encontrada")
-        except Cliente.DoesNotExist:
-            raise Http404("Cliente não existe")
+# O documento tem as entalpias em "entalpias" e a fase do fluido em "estados", e as duas
+# secções usam as MESMAS chaves: h1, h2, h3, h4. Uma diz o número (419.7 kJ/kg), a outra a
+# fase ("Vapor Superaquecido"). Achatadas para a raiz sem distinção, a secção que viesse
+# depois no documento ganhava — na prática a "estados" — e o h1 chegava ao frontend como
+# uma string. As entalpias ficavam inalcançáveis: não dava para as pôr num gráfico nem
+# para as ler pela API, apesar de serem o resultado de todo o cálculo termodinâmico.
+#
+# O prefixo é o que o SensorDataSerializer já documentava (h1 float, estado_h1 string).
+PREFIXO_SECCAO = {"estados": "estado_"}
 
 
-class ChillerDetailView(LoginRequiredMixin, TemplateView):
-    template_name = 'page_2.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        layout_context = TemplateLayout.init(self, context)
-        context.update(layout_context)
-
-        if not context.get('layout_path'):
-            context['layout_path'] = 'base.html'
-
-        cliente_id = self.request.GET.get('cliente_id')
-        chiller_id = self.request.GET.get('chiller_id')
-
-        cliente = None
-        chillers = []
-        chiller = None
-
-        if cliente_id:
-            cliente = Cliente.objects.filter(idCliente=cliente_id).first()
-            if cliente:
-                chillers = Chiller.objects.filter(idCliente=cliente)
-                if chiller_id:
-                    chiller = chillers.filter(idChiller=chiller_id).first()
-
-        context['cliente'] = cliente
-        context['chillers'] = chillers
-        context['chiller'] = chiller
-
-        # Inicialização dos campos do resumo com fallback
-        context.update({
-            "chiller_status_realtime": chiller.status if chiller else "N/A",
-            "chiller_ciclo_realtime": chiller.ciclo if chiller and hasattr(chiller, "ciclo") else "N/A",
-            "rendimento": 0,
-            "medidor_values": {}
-        })
-
-        # MongoDB connection
-        if chiller and chiller.ipcontrolador:
-            try:
-                mongo_client = MongoClient(settings.MONGO_URL)
-                db = mongo_client[settings.MONGO_DB_NAME]
-                collection = db["values"]
-                
-                last_doc = collection.find_one(
-                    {"ip": chiller.ipcontrolador},
-                    sort=[("timestamp", -1)]
-                )
-
-                if last_doc:
-                    # Get the values object from the document
-                    values = last_doc.get("values", {})
-                    
-                    # CORREÇÃO 2: Extrair os valores do resumo que faltavam
-                    estado_chiller = values.get("estado_chiller", chiller.status)
-                    ciclo = values.get("ciclo", "N/A")
-                    rendimento = values.get("rendimento", 0)
-                    
-                    # Campos existentes
-                    temps = values.get("temps", {})
-                    pressoes = values.get("pressoes", {})
-                    medidor = values.get("medidor", {})
-                    entalpias = values.get("entalpias", {})
-
-                    context["chiller_status_realtime"] = estado_chiller
-                    context["rendimento"] = rendimento # Garante que está no nível correto
-                    context["chiller_ciclo_realtime"] = ciclo
-
-                    # Mapeamento do medidor (mantido)
-                    context["ip_address"] = last_doc.get("ip", "N/A")
-                    context["fluido"] = chiller.gas # Melhor usar o do modelo
-                    
-                    context["temperaturas"] = temps
-                    context["pressoes"] = pressoes
-                    context["entalpias"] = entalpias
-                    
-                    # Atualiza o medidor_values com todos os dados, garantindo que o Status e Custo
-                    # estão presentes (o estado_chiller e ciclo de nível superior são para o resumo)
-                    context["medidor_values"] = {
-                        "Corrente_L1": medidor.get("Corrente_L1_output", 0),
-                        "Corrente_L2": medidor.get("Corrente_L2_output", 0),
-                        "Corrente_L3": medidor.get("Corrente_L3_output", 0),
-                        "Media_Corrente": medidor.get("MediaCorrentes_output", 0),
-                        "PotenciaAbsorbida_kW": medidor.get("PotenciaAbsorbida_kW", 0),
-                        "EnergiaAtivaParcial": medidor.get("EnergiaAtivaParcial_output", 0),
-                        "EnergiaReativaParcial": medidor.get("EnergiaReativaParcial_output", 0),
-                        "EnergiaAtivaTotal": medidor.get("EnergiaAtivaTotal_output", 0),
-                        "EnergiaReativaTotal": medidor.get("EnergiaReativaTotal_output", 0),
-                        "Tensao_L1_L2": medidor.get("Tensao_L1_L2_output", 0),
-                        "Tensao_L2_L3": medidor.get("Tensao_L2_L3_output", 0),
-                        "Tensao_L3_L1": medidor.get("Tensao_L3_L1_output", 0),
-                        "MediaTensoes": medidor.get("MediaTensoes_output", 0),
-                        "Consumo_hora": medidor.get("Energia_consumida_hora", 0),
-                        "Custo": medidor.get("custo", 0),
-                        "PotenciaAtivaTotal_kW": medidor.get("PotenciaAtivaTotal_kW", 0),
-                        "estado_chiller": estado_chiller, # Usa o valor extraído acima
-                        "ciclo": ciclo # Adiciona o ciclo ao medidor_values para flexibilidade
-                    }
-
-                # Se last_doc não for encontrado, o fallback já foi configurado acima.
-
-            except Exception as e:
-                print(f"Erro ao aceder ao MongoDB: {e}")
-                # O fallback em caso de erro de conexão já está nos valores iniciais do contexto
-                
-        return context
 class SensorDataAPIView(APIView):
+    # Esta API é consumida tanto pelo dashboard interno como pela área de cliente
+    # (page_2_cliente.html, logs.html), por isso não basta exigir login: o parâmetro
+    # "ip" é escolhido por quem chama, e sem verificação de posse um cliente
+    # autenticado leria a telemetria dos chillers de outro cliente.
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _pode_ver_chiller(user, ip_address):
+        """Um superutilizador vê qualquer chiller; um utilizador de cliente só vê os
+        do cliente a que está associado. Sem associação, não vê nenhum."""
+        if user.is_superuser:
+            return True
+        cliente = getattr(getattr(user, 'clienteprofile', None), 'cliente', None)
+        if cliente is None:
+            return False
+        return Chiller.objects.filter(ipcontrolador=ip_address, idCliente=cliente).exists()
+
     def get(self, request):
         # 1. Obter o IP a partir dos parâmetros da URL (?ip=...)
         ip_address = request.GET.get('ip')
@@ -267,8 +188,16 @@ class SensorDataAPIView(APIView):
         # 2. Validar se o IP foi fornecido
         if not ip_address:
             return Response(
-                {"detail": "Parâmetro 'ip' é obrigatório."}, 
+                {"detail": "Parâmetro 'ip' é obrigatório."},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2b. Validar que este utilizador tem direito a este chiller. Responde 404 e não
+        # 403 de propósito: um 403 confirmaria a existência do IP a quem não lhe pertence.
+        if not self._pode_ver_chiller(request.user, ip_address):
+            return Response(
+                {"detail": "Chiller não encontrado."},
+                status=status.HTTP_404_NOT_FOUND
             )
 
         client = None
@@ -283,7 +212,18 @@ class SensorDataAPIView(APIView):
             query = {"ip": ip_address}
 
             # 5. Executar a query filtrada e ordenada (Limit 60 para coincidir com o histórico do JS)
-            values_docs = list(values_collection.find(query).sort("timestamp", -1).limit(60))
+            # Ordena por "recebido_em" (hora de receção no servidor) e não por "timestamp"
+            # (relógio do chiller): um chiller com o relógio adiantado ficaria cravado no
+            # topo e o dashboard mostraria essa leitura como atual, ignorando tudo o que
+            # chegasse depois. O "_id" desempata leituras recebidas no mesmo segundo.
+            # Documentos antigos, gravados antes deste campo existir, não têm
+            # "recebido_em": no Mongo ordenam como null, portanto ficam depois dos
+            # recentes, que é o que se quer, e entre si desempatam pelo "_id".
+            values_docs = list(
+                values_collection.find(query)
+                .sort([("recebido_em", -1), ("_id", -1)])
+                .limit(60)
+            )
 
         except ConnectionFailure as e:
             return Response(
@@ -318,24 +258,31 @@ class SensorDataAPIView(APIView):
                     "fluido": doc.get("fluido", ""),
                     "IP": doc.get("ip", ""),
                     "timestamp": doc.get("timestamp", datetime.now().isoformat()),
+                    # Hora a que o servidor recebeu a leitura. É por esta que a lista vem
+                    # ordenada, por isso tem de ir para o frontend: sem ela, uma leitura
+                    # com o relógio adiantado aparece no topo a mostrar uma hora futura,
+                    # sem nada que denuncie a discrepância. Vem a null nos documentos
+                    # anteriores à introdução do campo.
+                    "recebido_em": doc.get("recebido_em"),
+                    # O ciclo está na raiz do documento e não dentro de "values", por isso o
+                    # achatamento abaixo não o apanha. O frontend usa-o para decidir se T3/T4
+                    # se rotulam como evaporador ou condensador; sem ele ficava sempre em
+                    # evaporador, mesmo num chiller em ciclo de aquecimento.
+                    "ciclo": doc.get("ciclo", ""),
                     "aviso": raw_values.get("aviso", "") # O aviso costuma estar na raiz de values
                 }
 
-                # --- LÓGICA DINÂMICA (A Mágica acontece aqui) ---
-                # Varre todos os itens dentro de 'values'. 
-                # Se for dict (ex: medidor), extrai os filhos. Se for valor (ex: rendimento), usa direto.
-                
+                # Achata as secções de "values" (medidor, temps, pressoes, entalpias,
+                # estados) para a raiz do objeto, para o frontend não ter de saber em que
+                # secção vive cada variável.
                 for key, val in raw_values.items():
                     if isinstance(val, dict):
-                        # É uma categoria (medidor, temps, pressoes, entalpias)
-                        # Copia tudo o que está dentro para a raiz do objeto 'entry'
                         for sub_key, sub_val in val.items():
-                            entry[sub_key] = sub_val 
-                    elif key not in entry: 
-                        # É um valor solto na raiz (ex: rendimento, COP) e ainda não existe em entry
+                            entry[PREFIXO_SECCAO.get(key, "") + sub_key] = sub_val
+                    elif key not in entry:
+                        # Valor solto na raiz: rendimento, aviso.
                         entry[key] = val
-                
-                # Nota: Com isto, entry['custo'] passará a existir automaticamente
+
                 processed_data.append(entry)
 
         # 7. Retorno
@@ -356,8 +303,15 @@ class SensorDataAPIView(APIView):
 # Configuração de Logs
 logger = logging.getLogger(__name__)
 
-class ClienteLogoView(View):
+class ClienteLogoView(LoginRequiredMixin, View):
+    """Serve o logótipo de um cliente. Não tinha autenticação nenhuma: o cliente_id é um
+    inteiro sequencial, portanto qualquer anónimo podia enumerá-los e descobrir quantos
+    clientes existem e quem são. Responde 404 e não 403 a quem não tem direito, para não
+    confirmar a existência do cliente — o mesmo critério da SensorDataAPIView."""
+
     def get(self, request, cliente_id):
+        if not pode_ver_cliente(request.user, cliente_id):
+            raise Http404("Cliente não existe")
         try:
             cliente = Cliente.objects.get(pk=cliente_id)
             if cliente.logo:
@@ -373,7 +327,7 @@ try:
 except Exception:
     db_mongo = None
 
-class ChillerDetailView(LoginRequiredMixin, TemplateView):
+class ChillerDetailView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'page_2.html'
 
     def get_context_data(self, **kwargs):
@@ -471,7 +425,7 @@ class ChillerDetailView(LoginRequiredMixin, TemplateView):
 
         return context
 
-class VariableLogView(LoginRequiredMixin, TemplateView):
+class VariableLogView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'page_5.html'
 
     def get_context_data(self, **kwargs):
@@ -497,16 +451,16 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
 
         variaveis = []
 
-        # --- LISTA NEGRA (EXCLUSÕES) ---
-        # Atualizado para incluir versões com underscore (_) conforme sua imagem
-        EXCLUDED_VARS = {
-            'custo', 
-            'estado_chiller', 'estado chiller',  # Cobre ambas as possibilidades
-            'estado_h1', 'estado h1',
-            'estado_h2', 'estado h2',
-            'h1', 'h2', 'h3', 'h4',
-            'aviso'
-        }
+        # Só entram na lista variáveis que se possam desenhar num gráfico, e é o tipo do
+        # valor que decide, não o nome: o "estado_chiller", o "aviso" e a fase do fluido
+        # são texto e ficam de fora sozinhos. A lista negra abaixo é só para o que é
+        # número mas não é uma leitura.
+        #
+        # As entalpias h1..h4 estavam aqui e não deviam: foram excluídas porque chegavam
+        # como texto, e chegavam como texto por causa da colisão de chaves entre as
+        # secções "entalpias" e "estados" (ver PREFIXO_SECCAO). Resolvida a colisão, são
+        # números e são o resultado de todo o cálculo termodinâmico.
+        EXCLUDED_VARS = {'custo'}
 
         if chiller:
             try:
@@ -527,19 +481,26 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
                     values = last_doc.get("values", {}) or {}
                     found_keys = set()
 
+                    # O bool é subclasse do int em Python, por isso tem de ser excluído à
+                    # mão, senão uma flag entrava na lista como se fosse uma medida.
+                    def e_leitura(nome, valor):
+                        return (
+                            nome not in EXCLUDED_VARS
+                            and isinstance(valor, (int, float))
+                            and not isinstance(valor, bool)
+                        )
+
                     for key, content in values.items():
-                        # CASO A: Grupo (dicionário aninhado)
                         if isinstance(content, dict):
-                            for sub_key in content.keys():
-                                if sub_key not in EXCLUDED_VARS:
+                            # Secção: medidor, temps, pressoes, entalpias, estados.
+                            for sub_key, sub_val in content.items():
+                                if e_leitura(sub_key, sub_val):
                                     found_keys.add(sub_key)
-                            
-                        # CASO B: Valor direto
-                        elif isinstance(content, (int, float, str)):
-                            if key not in EXCLUDED_VARS:
-                                found_keys.add(key)
-                    
-                    variaveis = sorted(list(found_keys))
+                        elif e_leitura(key, content):
+                            # Valor solto na raiz de "values": o rendimento.
+                            found_keys.add(key)
+
+                    variaveis = sorted(found_keys)
                 else:
                     variaveis = []
 
@@ -556,7 +517,8 @@ class VariableLogView(LoginRequiredMixin, TemplateView):
         context['variaveis'] = variaveis
         return context
 
-class TableClientsView(LoginRequiredMixin, TemplateView):
+# Lista TODOS os clientes: é a tabela de gestão interna, não é para utilizadores de cliente.
+class TableClientsView(SuperuserRequiredMixin, TemplateView):
     template_name = 'table_clients.html'
 
     def get_context_data(self, **kwargs):
@@ -572,8 +534,13 @@ class TableClientsView(LoginRequiredMixin, TemplateView):
         return context
     
 class ClienteChillerDetailView(LoginRequiredMixin, View):
+    """Devolve nome, email e lista de chillers de um cliente. O id vem do ?id= da query
+    string — não do ?cliente_id= — por isso não é o ClienteQueryStringMixin que o cobre."""
+
     def get(self, request, *args, **kwargs):
         cliente_id = request.GET.get("id")
+        if not pode_ver_cliente(request.user, cliente_id):
+            raise Http404("Cliente não existe")
         cliente = get_object_or_404(ClienteChillers, idCliente=cliente_id)
 
         chillers_data = []
@@ -591,7 +558,8 @@ class ClienteChillerDetailView(LoginRequiredMixin, View):
             "chillers": chillers_data
         })
     
-class ClienteUpdateView(LoginRequiredMixin, View):
+# Escreve nos dados de um cliente escolhido pelo corpo do pedido: só utilizadores internos.
+class ClienteUpdateView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             # IMPORTANTE: Usamos request.POST e request.FILES para suportar upload de arquivos (FormData)
@@ -627,7 +595,9 @@ class ClienteUpdateView(LoginRequiredMixin, View):
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
 
-class ClienteDeleteView(LoginRequiredMixin, View):
+# Apaga um cliente e o utilizador associado, escolhido pelo corpo do pedido. Antes só exigia
+# login: qualquer utilizador de cliente autenticado podia apagar outro cliente com um POST.
+class ClienteDeleteView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             data = json.loads(request.body)
@@ -683,7 +653,7 @@ class ClienteDeleteView(LoginRequiredMixin, View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
-class ChillerUpdateView(View):
+class ChillerUpdateView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             # Carrega os dados JSON enviados pelo JavaScript
@@ -724,7 +694,7 @@ class ChillerUpdateView(View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
 
-class ChillerDeleteView(View):
+class ChillerDeleteView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             data = json.loads(request.body)
@@ -737,7 +707,7 @@ class ChillerDeleteView(View):
         except Exception as e:
             return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
         
-class RelatorioView(LoginRequiredMixin, TemplateView):
+class RelatorioView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'relatorios.html'
 
     def get_context_data(self, **kwargs):
@@ -890,7 +860,8 @@ class RelatorioView(LoginRequiredMixin, TemplateView):
             context['dados'] = {}
 
         logo_abspath = os.path.abspath('src/assets/img/logo_arcoxxi.png')
-        context['logo_path'] = f"file:///{logo_abspath.replace('\\', '/')}" if os.path.exists(logo_abspath) else ""
+        logo_path_str = logo_abspath.replace('\\', '/')
+        context['logo_path'] = f"file:///{logo_path_str}" if os.path.exists(logo_abspath) else ""
         return context
 
     def safe_float(self, val):
@@ -936,7 +907,7 @@ def get_mongo_data(ip_chiller):
         logger.error(f"Erro Mongo Helper: {e}")
     return data
 
-class LivroObraView(LoginRequiredMixin, TemplateView):
+class LivroObraView(LoginRequiredMixin, ClienteQueryStringMixin, TemplateView):
     template_name = 'maintenance_log.html'
 
     def get_context_data(self, **kwargs):
@@ -1051,7 +1022,8 @@ class LivroObraView(LoginRequiredMixin, TemplateView):
         
         return context
 
-class RegistarIntervencaoView(LoginRequiredMixin, View):
+# Cria intervenções em qualquer chiller e pode reiniciar o horímetro: escrita, só internos.
+class RegistarIntervencaoView(SuperuserRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         try:
             chiller_id = request.POST.get('chiller_id')
